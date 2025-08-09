@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>HEDLES</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.70.0/phaser.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100vh;
+            background: #1a1a2e;
+            font-family: Arial, sans-serif;
+            touch-action: none;
+            overflow: hidden;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+
+        html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="game-container"></div>
+
+    <script>
+        class HEDLES extends Phaser.Scene {
+            constructor() {
+                super({ key: 'HEDLES' });
+
+                // Game configuration
+                this.CANNON_SIZE = 96;
+                this.CANNON_CHARGE_TIME = 500;
+                this.CANNON_COOLDOWN_TIME = 1000;
+                this.HEAD_SIZE = 128;
+                this.HEAD_PHYSICS_SIZE = 80; // Smaller collision box for heads
+                this.HEDLE_SIZE = 96;
+                this.HEDLE_PHYSICS_SIZE = 40; // Much smaller collision box for hedles
+                this.HEAD_SPEED = 800;
+                this.HEDLE_SPEED = 75;
+                this.HEDLE_MOVE_TIME = 2000; // Move for 2 seconds
+                this.HEDLE_WAIT_TIME = 2000; // Wait for 2 seconds
+                this.HEDLE_WALK_SPRITE_INTERVAL = 400; // Alternate L/R sprites
+
+                // Sprite counts
+                this.HEAD_COUNT = 4;
+                this.HEDLE_COUNT = 4;
+
+                // Game state
+                this.score = 0;
+                this.gameOver = false;
+                this.cannonAngle = -Math.PI / 2;
+                this.cannonCharging = false;
+                this.cannonOnCooldown = false;
+                this.cannonChargeStart = 0;
+                this.cannonCooldownStart = 0;
+                this.lastPointerPosition = { x: 450, y: 400 };
+
+                // Game dimensions
+                this.gameWidth = 900;
+                this.gameHeight = 1600;
+            }
+
+            preload() {
+                // Load cannon assets
+                this.load.image('cannon', 'assets/cannon.png');
+                this.load.audio('cannon_shot', 'assets/cannon_shot.mp3');
+
+                // Load head sprites
+                for (let i = 1; i <= this.HEAD_COUNT; i++) {
+                    const num = i.toString().padStart(4, '0');
+                    this.load.image(`head_${num}`, `assets/head_${num}_ft.png`);
+                }
+
+                // Load hedle sprites (renamed from body)
+                for (let i = 1; i <= this.HEDLE_COUNT; i++) {
+                    const num = i.toString().padStart(4, '0');
+                    this.load.image(`body_${num}_ft`, `assets/body_${num}_ft.png`);
+                    this.load.image(`body_${num}_bk`, `assets/body_${num}_bk.png`);
+                    this.load.image(`body_${num}_L_sd`, `assets/body_${num}_L_sd.png`);
+                    this.load.image(`body_${num}_R_sd`, `assets/body_${num}_R_sd.png`);
+                }
+            }
+
+            create() {
+                // Set background
+                this.cameras.main.setBackgroundColor(0x2c3e50);
+
+                // Create physics groups
+                this.hedles = this.physics.add.group();
+                this.heads = this.physics.add.group();
+
+                // Create cannon
+                this.cannon = this.add.image(this.gameWidth / 2, this.gameHeight - 100, 'cannon');
+                this.cannon.setDisplaySize(this.CANNON_SIZE, this.CANNON_SIZE * 2);
+                this.cannon.setOrigin(0.5, 0.5);
+
+                // Set up collision detection
+                this.physics.add.overlap(this.heads, this.hedles, this.hitHedle, null, this);
+
+                // Input handling
+                this.input.on('pointermove', (pointer) => {
+                    this.lastPointerPosition = { x: pointer.x, y: pointer.y };
+                    this.updateCannonAngle();
+                });
+
+                this.input.on('pointerdown', (pointer) => {
+                    this.lastPointerPosition = { x: pointer.x, y: pointer.y };
+                    if (!this.gameOver && !this.cannonCharging && !this.cannonOnCooldown) {
+                        this.updateCannonAngle();
+                        this.startCannonCharge();
+                    }
+                });
+
+                // Score text
+                this.scoreText = this.add.text(this.gameWidth / 2, 50, 'Score: 0', {
+                    fontSize: '48px',
+                    fill: '#ffffff'
+                }).setOrigin(0.5);
+
+                // Start spawning hedles
+                this.hedleSpawnTimer = this.time.addEvent({
+                    delay: 3000,
+                    callback: this.spawnHedle,
+                    callbackScope: this,
+                    loop: true
+                });
+
+                // Initial hedles
+                for (let i = 0; i < 3; i++) {
+                    this.time.delayedCall(i * 500, () => this.spawnHedle());
+                }
+            }
+
+            updateCannonAngle() {
+                const cannonX = this.cannon.x;
+                const cannonY = this.cannon.y;
+
+                this.cannonAngle = Phaser.Math.Angle.Between(
+                    cannonX, cannonY,
+                    this.lastPointerPosition.x, this.lastPointerPosition.y
+                );
+
+                // Limit to upward 180° arc
+                if (this.cannonAngle > 0) {
+                    this.cannonAngle = 0;
+                } else if (this.cannonAngle < -Math.PI) {
+                    this.cannonAngle = -Math.PI;
+                }
+
+                this.cannon.setRotation(this.cannonAngle + Math.PI / 2);
+            }
+
+            startCannonCharge() {
+                this.cannonCharging = true;
+                this.cannonChargeStart = this.time.now;
+
+                this.chargeTimer = this.time.delayedCall(this.CANNON_CHARGE_TIME, () => {
+                    if (this.cannonCharging && !this.gameOver) {
+                        this.fireCannon();
+                    }
+                });
+            }
+
+            fireCannon() {
+                // Play sound
+                if (this.cache.audio.exists('cannon_shot')) {
+                    this.sound.play('cannon_shot');
+                }
+
+                // Reset charging
+                this.cannonCharging = false;
+                this.cannon.setTint(0xffffff);
+
+                // Start cooldown
+                this.cannonOnCooldown = true;
+                this.cannonCooldownStart = this.time.now;
+
+                // Create head projectile
+                const headNum = Phaser.Math.Between(1, this.HEAD_COUNT);
+                const headId = headNum.toString().padStart(4, '0');
+
+                // First add to group, then create sprite
+                const head = this.heads.create(
+                    this.cannon.x,
+                    this.cannon.y - 50,
+                    `head_${headId}`
+                );
+
+                head.setDisplaySize(this.HEAD_SIZE, this.HEAD_SIZE);
+
+                // Set circular physics body for heads
+                head.body.setCircle(this.HEAD_PHYSICS_SIZE / 2);
+
+                // Store speed
+                head.speed = this.HEAD_SPEED;
+
+                // Calculate and apply velocity
+                const velocityX = Math.cos(this.cannonAngle) * this.HEAD_SPEED;
+                const velocityY = Math.sin(this.cannonAngle) * this.HEAD_SPEED;
+
+                // Force velocity to be set
+                head.setVelocityX(velocityX);
+                head.setVelocityY(velocityY);
+
+                console.log(`Head fired! Velocity: ${head.body.velocity.x.toFixed(0)}, ${head.body.velocity.y.toFixed(0)}`);
+            }
+
+            spawnHedle() {
+                if (this.gameOver) return;
+
+                const hedleNum = Phaser.Math.Between(1, this.HEDLE_COUNT);
+                const hedleId = hedleNum.toString().padStart(4, '0');
+
+                const spawnX = Phaser.Math.Between(100, this.gameWidth - 100);
+                const hedle = this.hedles.create(spawnX, -50, `body_${hedleId}_ft`);
+
+                hedle.setDisplaySize(this.HEDLE_SIZE, this.HEDLE_SIZE);
+
+                // Set rectangular physics body (automatically centered)
+                hedle.body.setSize(this.HEDLE_PHYSICS_SIZE, this.HEDLE_PHYSICS_SIZE);
+
+                hedle.hedleId = hedleId;
+                hedle.currentSprite = 'ft';
+                hedle.isDying = false;
+                hedle.isMoving = false;
+                hedle.walkSpriteIndex = 0;
+                hedle.baseScaleX = hedle.scaleX;
+                hedle.baseScaleY = hedle.scaleY;
+
+                // Set initial direction
+                hedle.direction = Phaser.Math.FloatBetween(Math.PI * 0.25, Math.PI * 0.75);
+
+                this.hedles.add(hedle);
+
+                // Start bob animation
+                this.createBobAnimation(hedle);
+
+                // Start movement cycle
+                this.startMovementCycle(hedle);
+            }
+
+            createBobAnimation(hedle) {
+                // Create very subtle bobbing animation using absolute scale values
+                hedle.bobTween = this.tweens.add({
+                    targets: hedle,
+                    scaleY: hedle.baseScaleY + 0.02, // Add just 0.02 to scale
+                    scaleX: hedle.baseScaleX - 0.02, // Subtract 0.02 from scale
+                    duration: 500,
+                    yoyo: true,
+                    repeat: -1,
+                    ease: 'Sine.easeInOut'
+                });
+            }
+
+            startMovementCycle(hedle) {
+                if (hedle.isDying || !hedle.active) return;
+
+                // Start moving phase
+                hedle.isMoving = true;
+                hedle.walkSpriteIndex = 0;
+
+                // Pick new random direction
+                hedle.direction = Phaser.Math.FloatBetween(Math.PI * 0.25, Math.PI * 0.75);
+
+                // Set velocity
+                const velX = Math.cos(hedle.direction) * this.HEDLE_SPEED;
+                const velY = Math.sin(hedle.direction) * this.HEDLE_SPEED;
+                hedle.body.setVelocity(velX, velY);
+
+                // Animate walking sprites (L_sd and R_sd)
+                hedle.walkTimer = this.time.addEvent({
+                    delay: this.HEDLE_WALK_SPRITE_INTERVAL,
+                    callback: () => {
+                        if (!hedle.isDying && hedle.active && hedle.isMoving) {
+                            hedle.walkSpriteIndex = (hedle.walkSpriteIndex + 1) % 2;
+                            const side = hedle.walkSpriteIndex === 0 ? 'L_sd' : 'R_sd';
+                            hedle.setTexture(`body_${hedle.hedleId}_${side}`);
+                        }
+                    },
+                    loop: true
+                });
+
+                // After move time, start waiting phase
+                this.time.delayedCall(this.HEDLE_MOVE_TIME, () => {
+                    if (hedle.isDying || !hedle.active) return;
+
+                    // Stop moving
+                    hedle.isMoving = false;
+                    hedle.body.setVelocity(0, 0);
+
+                    // Clean up walk timer
+                    if (hedle.walkTimer) hedle.walkTimer.destroy();
+
+                    // Show front sprite
+                    hedle.setTexture(`body_${hedle.hedleId}_ft`);
+
+                    // After wait time, restart cycle
+                    this.time.delayedCall(this.HEDLE_WAIT_TIME, () => {
+                        this.startMovementCycle(hedle);
+                    });
+                });
+            }
+
+            hitHedle(head, hedle) {
+                if (hedle.isDying) return;
+
+                hedle.isDying = true;
+
+                // Clean up timers
+                if (hedle.walkTimer) hedle.walkTimer.destroy();
+                if (hedle.bobTween) hedle.bobTween.destroy();
+
+                // Death animation
+                hedle.body.setVelocity(0, 0);
+                this.tweens.add({
+                    targets: hedle,
+                    rotation: Math.PI / 2,
+                    alpha: 0,
+                    duration: 1000,
+                    onComplete: () => hedle.destroy()
+                });
+
+                // Update score
+                this.score++;
+                this.scoreText.setText(`Score: ${this.score}`);
+
+                // Bounce head
+                const bounceAngle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+                head.speed *= 0.5;
+                const newVelX = Math.cos(bounceAngle) * head.speed;
+                const newVelY = Math.sin(bounceAngle) * head.speed;
+                head.body.setVelocity(newVelX, newVelY);
+            }
+
+            checkGameOver() {
+                this.hedles.children.entries.forEach(hedle => {
+                    if (!hedle.isDying && hedle.y > this.gameHeight - 150) {
+                        this.endGame();
+                    }
+                });
+            }
+
+            endGame() {
+                this.gameOver = true;
+
+                if (this.hedleSpawnTimer) this.hedleSpawnTimer.destroy();
+
+                this.hedles.children.entries.forEach(hedle => {
+                    hedle.body.setVelocity(0, 0);
+                    if (hedle.walkTimer) hedle.walkTimer.destroy();
+                    if (hedle.bobTween) hedle.bobTween.destroy();
+                });
+
+                this.add.text(this.gameWidth / 2, this.gameHeight / 2, 'GAME OVER', {
+                    fontSize: '96px',
+                    fill: '#ff0000'
+                }).setOrigin(0.5);
+
+                this.add.text(this.gameWidth / 2, this.gameHeight / 2 + 100, `Final Score: ${this.score}`, {
+                    fontSize: '48px',
+                    fill: '#ffffff'
+                }).setOrigin(0.5);
+            }
+
+            update(time, delta) {
+                if (this.gameOver) return;
+
+                // Update cooldown
+                if (this.cannonOnCooldown) {
+                    const elapsed = this.time.now - this.cannonCooldownStart;
+                    if (elapsed >= this.CANNON_COOLDOWN_TIME) {
+                        this.cannonOnCooldown = false;
+                    }
+                }
+
+                // Cannon charging animation
+                if (this.cannonCharging) {
+                    const chargeProgress = (this.time.now - this.cannonChargeStart) / this.CANNON_CHARGE_TIME;
+                    const shakeIntensity = Math.min(chargeProgress * 10, 10);
+
+                    this.cannon.x = this.gameWidth / 2 + (Math.random() - 0.5) * shakeIntensity;
+                    this.cannon.y = this.gameHeight - 100 + (Math.random() - 0.5) * shakeIntensity;
+                    this.cannon.setTint(0xff4444);
+                } else {
+                    this.cannon.x = this.gameWidth / 2;
+                    this.cannon.y = this.gameHeight - 100;
+                    this.cannon.setTint(0xffffff);
+                }
+
+                // Clean up off-screen heads
+                this.heads.children.entries.forEach(head => {
+                    if (head.x < -200 || head.x > this.gameWidth + 200 ||
+                        head.y < -200 || head.y > this.gameHeight + 200) {
+                        head.destroy();
+                    }
+                });
+
+                this.checkGameOver();
+            }
+        }
+
+        const config = {
+            type: Phaser.AUTO,
+            width: 900,
+            height: 1600,
+            parent: 'game-container',
+            physics: {
+                default: 'arcade',
+                arcade: {
+                    gravity: { y: 0 },
+                    debug: true // Always on until we fix everything
+                }
+            },
+            scene: HEDLES,
+            scale: {
+                mode: Phaser.Scale.FIT,
+                autoCenter: Phaser.Scale.CENTER_BOTH
+            }
+        };
+
+        const game = new Phaser.Game(config);
+    </script>
+</body>
+
+</html>
