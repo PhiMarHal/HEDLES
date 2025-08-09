@@ -74,6 +74,7 @@
                 this.lastPointerPosition = { x: 450, y: 400 };
                 this.currentSpawnDelay = 4000; // Start with 4 second delay
                 this.spawnSpeedMultiplier = 0.9; // Make 10% faster each time
+                this.isFiring = false; // Reset firing state
             }
 
             preload() {
@@ -116,8 +117,9 @@
                 // Set background
                 this.cameras.main.setBackgroundColor(0x2c3e50);
 
-                // Set world bounds for hedles
+                // Set world bounds for physics
                 this.physics.world.setBounds(0, 0, this.gameWidth, this.gameHeight);
+                this.physics.world.setBoundsCollision(true, true, true, true);
 
                 // Create physics groups
                 this.hedles = this.physics.add.group();
@@ -145,11 +147,25 @@
 
                 this.input.on('pointerdown', (pointer) => {
                     this.lastPointerPosition = { x: pointer.x, y: pointer.y };
-                    if (!this.gameOver && !this.cannonCharging && !this.cannonOnCooldown) {
-                        this.updateCannonAngle();
-                        this.startCannonCharge();
-                    }
+                    this.updateCannonAngle();
+                    this.startFiring();
                 });
+
+                this.input.on('pointerup', () => {
+                    this.stopFiring();
+                });
+
+                // Keyboard support
+                this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+                this.spaceKey.on('down', () => {
+                    this.startFiring();
+                });
+                this.spaceKey.on('up', () => {
+                    this.stopFiring();
+                });
+
+                // Track firing state
+                this.isFiring = false;
 
                 // Score text
                 this.scoreText = this.add.text(this.gameWidth / 2, 50, 'Score: 0', {
@@ -179,7 +195,7 @@
             spawnEgg() {
                 if (this.gameOver) return;
 
-                const spawnX = Phaser.Math.Between(100, this.gameWidth - 100);
+                const spawnX = Phaser.Math.Between(150, this.gameWidth - 150); // Keep away from edges
                 const spawnY = Phaser.Math.Between(50, 150); // Random Y near top
 
                 const egg = this.add.sprite(spawnX, spawnY, 'egg');
@@ -223,7 +239,11 @@
             }
 
             hatchEgg(egg) {
-                const hedle = this.physics.add.sprite(egg.x, egg.y, `body_${egg.hedleId}_ft`);
+                // Ensure hedle spawns within bounds
+                const hedleX = Phaser.Math.Clamp(egg.x, 80, this.gameWidth - 80);
+                const hedleY = Phaser.Math.Clamp(egg.y, 80, this.gameHeight - 200);
+
+                const hedle = this.physics.add.sprite(hedleX, hedleY, `body_${egg.hedleId}_ft`);
 
                 hedle.setDisplaySize(this.HEDLE_SIZE, this.HEDLE_SIZE);
 
@@ -232,7 +252,9 @@
                 hedle.body.setOffset(12, 16);
 
                 // Set hedle to stay within screen bounds
-                hedle.body.setCollideWorldBounds(true);
+                hedle.setCollideWorldBounds(true);
+                hedle.body.setBounce(1, 1); // Full bounce off walls
+                hedle.body.setMaxVelocity(this.HEDLE_SPEED, this.HEDLE_SPEED); // Cap maximum speed
 
                 hedle.hedleId = egg.hedleId;
                 hedle.currentSprite = 'ft';
@@ -277,6 +299,24 @@
                 }
 
                 this.cannon.setRotation(this.cannonAngle + Math.PI / 2);
+            }
+
+            startFiring() {
+                if (this.gameOver) return;
+                this.isFiring = true;
+                this.attemptToFire();
+            }
+
+            stopFiring() {
+                this.isFiring = false;
+            }
+
+            attemptToFire() {
+                if (!this.isFiring || this.gameOver) return;
+
+                if (!this.cannonCharging && !this.cannonOnCooldown) {
+                    this.startCannonCharge();
+                }
             }
 
             startCannonCharge() {
@@ -325,10 +365,8 @@
                 head.body.setOffset(16, 4);
 
                 // Enable bouncing for billiard physics
-                head.body.setBounce(0.8, 0.8);
-
-                // Store speed
-                head.speed = this.HEAD_SPEED;
+                head.body.setBounce(1, 1); // Perfect elastic collision
+                head.body.setDrag(0); // No drag
 
                 // Calculate velocity
                 const velocityX = Math.cos(this.cannonAngle) * this.HEAD_SPEED;
@@ -423,8 +461,15 @@
                 hedle.body.setVelocity(0, 0);
                 hedle.body.enable = false; // Disable physics to prevent further collisions
 
+                // Store current position before changing origin
+                const currentY = hedle.y;
+
                 // Change origin to bottom center for rotation
                 hedle.setOrigin(0.5, 1);
+
+                // Adjust position to compensate for origin change
+                // When origin changes from center to bottom, we need to move sprite down
+                hedle.y = currentY + (hedle.displayHeight / 2);
 
                 // Randomly fall left or right
                 const fallDirection = Phaser.Math.Between(0, 1) === 0 ? -1 : 1;
@@ -441,19 +486,18 @@
                 this.score++;
                 this.scoreText.setText(`Score: ${this.score}`);
 
-                // Bounce head
+                // Bounce head - reduce speed by half
+                const currentSpeed = Math.sqrt(head.body.velocity.x ** 2 + head.body.velocity.y ** 2);
+                const newSpeed = currentSpeed * 0.5;
                 const bounceAngle = Phaser.Math.FloatBetween(0, Math.PI * 2);
-                head.speed *= 0.5;
-                const newVelX = Math.cos(bounceAngle) * head.speed;
-                const newVelY = Math.sin(bounceAngle) * head.speed;
+                const newVelX = Math.cos(bounceAngle) * newSpeed;
+                const newVelY = Math.sin(bounceAngle) * newSpeed;
                 head.body.setVelocity(newVelX, newVelY);
             }
 
             headCollision(head1, head2) {
                 // Billiard-style collision already handled by Phaser's physics
-                // Just apply some damping
-                head1.body.velocity.scale(0.95);
-                head2.body.velocity.scale(0.95);
+                // No damping - keep full velocity
             }
 
             checkGameOver() {
@@ -468,6 +512,7 @@
                 if (this.gameOver) return; // Prevent multiple calls
 
                 this.gameOver = true;
+                this.stopFiring(); // Stop any continuous firing
 
                 // Clean up all timers
                 if (this.eggSpawnTimer) this.eggSpawnTimer.destroy();
@@ -533,6 +578,10 @@
                     const elapsed = this.time.now - this.cannonCooldownStart;
                     if (elapsed >= this.CANNON_COOLDOWN_TIME) {
                         this.cannonOnCooldown = false;
+                        // Try to fire again if still holding input
+                        if (this.isFiring) {
+                            this.attemptToFire();
+                        }
                     }
                 }
 
@@ -550,18 +599,26 @@
                     this.cannon.setTint(0xffffff);
                 }
 
-                // Apply friction to heads
-                this.heads.children.entries.forEach(head => {
-                    head.body.velocity.scale(0.995); // Slight friction
+                // Keep hedles within bounds
+                this.hedles.children.entries.forEach(hedle => {
+                    if (!hedle.isDying && hedle.isMoving) {
+                        // Clamp position to screen bounds
+                        if (hedle.x < 40) {
+                            hedle.x = 40;
+                            hedle.body.setVelocityX(Math.abs(hedle.body.velocity.x));
+                        } else if (hedle.x > this.gameWidth - 40) {
+                            hedle.x = this.gameWidth - 40;
+                            hedle.body.setVelocityX(-Math.abs(hedle.body.velocity.x));
+                        }
 
-                    // Clean up stopped heads after a while
-                    const speed = Math.sqrt(head.body.velocity.x ** 2 + head.body.velocity.y ** 2);
-                    if (speed < 10) {
-                        head.destroy();
+                        if (hedle.y < 40) {
+                            hedle.y = 40;
+                            hedle.body.setVelocityY(Math.abs(hedle.body.velocity.y));
+                        }
                     }
                 });
 
-                // Clean up off-screen heads
+                // Clean up off-screen heads only
                 this.heads.children.entries.forEach(head => {
                     if (head.x < -200 || head.x > this.gameWidth + 200 ||
                         head.y < -200 || head.y > this.gameHeight + 200) {
