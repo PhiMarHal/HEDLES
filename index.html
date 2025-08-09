@@ -44,17 +44,26 @@
                 this.CANNON_COOLDOWN_TIME = 1000;
                 this.HEAD_SIZE = 128;
                 this.HEDLE_SIZE = 160;
+                this.EGG_SIZE = 80; // Starting egg size
                 this.HEAD_SPEED = 800;
                 this.HEDLE_SPEED = 75;
-                this.HEDLE_MOVE_TIME = 2000; // Move for 2 seconds
-                this.HEDLE_WAIT_TIME = 2000; // Wait for 2 seconds
-                this.HEDLE_WALK_SPRITE_INTERVAL = 400; // Alternate L/R sprites
+                this.HEDLE_MOVE_TIME = 2000;
+                this.HEDLE_WAIT_TIME = 2000;
+                this.HEDLE_WALK_SPRITE_INTERVAL = 400;
+                this.EGG_GROWTH_TIME = 4000; // 4 seconds to hatch
+                this.MIN_HEAD_DAMAGE_SPEED = 50; // Minimum speed to damage hedles
 
                 // Sprite counts
                 this.HEAD_COUNT = 4;
                 this.HEDLE_COUNT = 4;
 
-                // Game state
+                // Game dimensions
+                this.gameWidth = 900;
+                this.gameHeight = 1600;
+            }
+
+            init() {
+                // Reset all game state on init (for proper restart)
                 this.score = 0;
                 this.gameOver = false;
                 this.cannonAngle = -Math.PI / 2;
@@ -63,11 +72,8 @@
                 this.cannonChargeStart = 0;
                 this.cannonCooldownStart = 0;
                 this.lastPointerPosition = { x: 450, y: 400 };
-                this.hedlesPerSpawn = 1; // Start with 1 hedle per spawn
-
-                // Game dimensions
-                this.gameWidth = 900;
-                this.gameHeight = 1600;
+                this.currentSpawnDelay = 4000; // Start with 4 second delay
+                this.spawnSpeedMultiplier = 0.9; // Make 10% faster each time
             }
 
             preload() {
@@ -75,13 +81,28 @@
                 this.load.image('cannon', 'assets/cannon.png');
                 this.load.audio('cannon_shot', 'assets/cannon_shot.mp3');
 
+                // Load egg sprite (create placeholder if missing)
+                this.load.image('egg', 'assets/item_egg.png');
+
+                // Add error handler for missing egg sprite
+                this.load.on('loaderror', (file) => {
+                    if (file.key === 'egg') {
+                        // Create white oval placeholder for egg
+                        const graphics = this.make.graphics({ x: 0, y: 0, add: false });
+                        graphics.fillStyle(0xffffff, 1);
+                        graphics.fillEllipse(32, 40, 64, 80);
+                        graphics.generateTexture('egg', 64, 80);
+                        graphics.destroy();
+                    }
+                });
+
                 // Load head sprites
                 for (let i = 1; i <= this.HEAD_COUNT; i++) {
                     const num = i.toString().padStart(4, '0');
                     this.load.image(`head_${num}`, `assets/head_${num}_ft.png`);
                 }
 
-                // Load hedle sprites (renamed from body)
+                // Load hedle sprites
                 for (let i = 1; i <= this.HEDLE_COUNT; i++) {
                     const num = i.toString().padStart(4, '0');
                     this.load.image(`body_${num}_ft`, `assets/body_${num}_ft.png`);
@@ -95,19 +116,28 @@
                 // Set background
                 this.cameras.main.setBackgroundColor(0x2c3e50);
 
+                // Set world bounds for hedles
+                this.physics.world.setBounds(0, 0, this.gameWidth, this.gameHeight);
+
                 // Create physics groups
                 this.hedles = this.physics.add.group();
                 this.heads = this.physics.add.group();
+                this.eggs = [];  // Track eggs manually (not physics objects)
 
                 // Create cannon
                 this.cannon = this.add.image(this.gameWidth / 2, this.gameHeight - 100, 'cannon');
                 this.cannon.setDisplaySize(this.CANNON_SIZE, this.CANNON_SIZE * 2);
                 this.cannon.setOrigin(0.5, 0.5);
 
-                // Set up collision detection
-                this.physics.add.overlap(this.heads, this.hedles, this.hitHedle, null, this);
+                // Set up collision detection with condition check
+                this.physics.add.overlap(this.heads, this.hedles, this.hitHedle, this.canHitHedle, this);
+
+                // Add head-to-head collisions for billiard physics
+                this.physics.add.collider(this.heads, this.heads, this.headCollision, null, this);
 
                 // Input handling
+                this.input.removeAllListeners(); // Clear any existing listeners
+
                 this.input.on('pointermove', (pointer) => {
                     this.lastPointerPosition = { x: pointer.x, y: pointer.y };
                     this.updateCannonAngle();
@@ -127,23 +157,107 @@
                     fill: '#ffffff'
                 }).setOrigin(0.5);
 
-                // Start spawning hedles
-                this.hedleSpawnTimer = this.time.addEvent({
-                    delay: 4000, // Every 4 seconds
-                    callback: () => {
-                        // Spawn current number of hedles
-                        for (let i = 0; i < this.hedlesPerSpawn; i++) {
-                            this.time.delayedCall(i * 200, () => this.spawnHedle());
-                        }
-                        // Increase count for next spawn
-                        this.hedlesPerSpawn++;
-                    },
-                    callbackScope: this,
-                    loop: true
-                });
+                // Start spawning with first egg immediately
+                this.spawnEgg();
+                this.scheduleNextEgg();
+            }
 
-                // Initial hedles (just 1)
-                this.spawnHedle();
+            scheduleNextEgg() {
+                if (this.gameOver) return;
+
+                this.eggSpawnTimer = this.time.delayedCall(this.currentSpawnDelay, () => {
+                    this.spawnEgg();
+                    // Make next spawn 10% faster
+                    this.currentSpawnDelay *= this.spawnSpeedMultiplier;
+                    // Minimum spawn delay of 500ms
+                    this.currentSpawnDelay = Math.max(500, this.currentSpawnDelay);
+                    // Schedule next egg
+                    this.scheduleNextEgg();
+                });
+            }
+
+            spawnEgg() {
+                if (this.gameOver) return;
+
+                const spawnX = Phaser.Math.Between(100, this.gameWidth - 100);
+                const spawnY = Phaser.Math.Between(50, 150); // Random Y near top
+
+                const egg = this.add.sprite(spawnX, spawnY, 'egg');
+                egg.setDisplaySize(this.EGG_SIZE, this.EGG_SIZE);
+
+                // Store which hedle this will become
+                egg.hedleId = Phaser.Math.Between(1, this.HEDLE_COUNT).toString().padStart(4, '0');
+                egg.growthTimer = 0;
+
+                // Add to eggs array for tracking
+                this.eggs.push(egg);
+
+                // Grow the egg over 4 seconds
+                const growthSteps = 4;
+                for (let i = 1; i <= growthSteps; i++) {
+                    const timer = this.time.delayedCall(i * 1000, () => {
+                        if (egg && egg.active && !this.gameOver) {
+                            const newSize = this.EGG_SIZE * (1 + i * 0.25);
+                            egg.setDisplaySize(newSize, newSize);
+
+                            // Add pulsing effect as it grows
+                            this.tweens.add({
+                                targets: egg,
+                                scaleX: egg.scaleX * 1.1,
+                                scaleY: egg.scaleY * 1.1,
+                                duration: 200,
+                                yoyo: true,
+                                ease: 'Sine.easeInOut'
+                            });
+                        }
+                    });
+                    egg[`growthTimer${i}`] = timer;
+                }
+
+                // Hatch after 4 seconds
+                egg.hatchTimer = this.time.delayedCall(this.EGG_GROWTH_TIME, () => {
+                    if (egg && egg.active && !this.gameOver) {
+                        this.hatchEgg(egg);
+                    }
+                });
+            }
+
+            hatchEgg(egg) {
+                const hedle = this.physics.add.sprite(egg.x, egg.y, `body_${egg.hedleId}_ft`);
+
+                hedle.setDisplaySize(this.HEDLE_SIZE, this.HEDLE_SIZE);
+
+                // Set physics body
+                hedle.body.setSize(24, 32);
+                hedle.body.setOffset(12, 16);
+
+                // Set hedle to stay within screen bounds
+                hedle.body.setCollideWorldBounds(true);
+
+                hedle.hedleId = egg.hedleId;
+                hedle.currentSprite = 'ft';
+                hedle.isDying = false;
+                hedle.isMoving = false;
+                hedle.walkSpriteIndex = 0;
+
+                // Set initial direction
+                hedle.direction = Phaser.Math.FloatBetween(Math.PI * 0.25, Math.PI * 0.75);
+
+                // Add to group
+                this.hedles.add(hedle);
+
+                // Start animations
+                this.createBobAnimation(hedle);
+                this.startMovementCycle(hedle);
+
+                // Remove egg from tracking array
+                const index = this.eggs.indexOf(egg);
+                if (index > -1) {
+                    this.eggs.splice(index, 1);
+                }
+
+                // Destroy egg
+                egg.destroy();
             }
 
             updateCannonAngle() {
@@ -194,7 +308,6 @@
                 const headNum = Phaser.Math.Between(1, this.HEAD_COUNT);
                 const headId = headNum.toString().padStart(4, '0');
 
-                // Create sprite using physics.add.sprite for better control
                 const head = this.physics.add.sprite(
                     this.cannon.x,
                     this.cannon.y - 50,
@@ -207,9 +320,12 @@
                 // Configure the sprite
                 head.setDisplaySize(this.HEAD_SIZE, this.HEAD_SIZE);
 
-                // Set square physics body (auto-centered)
+                // Set physics body
                 head.body.setSize(18, 18);
                 head.body.setOffset(16, 4);
+
+                // Enable bouncing for billiard physics
+                head.body.setBounce(0.8, 0.8);
 
                 // Store speed
                 head.speed = this.HEAD_SPEED;
@@ -218,54 +334,18 @@
                 const velocityX = Math.cos(this.cannonAngle) * this.HEAD_SPEED;
                 const velocityY = Math.sin(this.cannonAngle) * this.HEAD_SPEED;
 
-                // Set velocity using multiple methods to ensure it sticks
+                // Set velocity
                 head.body.velocity.set(velocityX, velocityY);
             }
 
-            spawnHedle() {
-                if (this.gameOver) return;
-
-                const hedleNum = Phaser.Math.Between(1, this.HEDLE_COUNT);
-                const hedleId = hedleNum.toString().padStart(4, '0');
-
-                const spawnX = Phaser.Math.Between(100, this.gameWidth - 100);
-                const hedle = this.physics.add.sprite(spawnX, -50, `body_${hedleId}_ft`);
-
-                hedle.setDisplaySize(this.HEDLE_SIZE, this.HEDLE_SIZE);
-
-                // Set rectangular physics body (automatically centered)
-                hedle.body.setSize(24, 32);
-                hedle.body.setOffset(12, 16);
-
-                hedle.hedleId = hedleId;
-                hedle.currentSprite = 'ft';
-                hedle.isDying = false;
-                hedle.isMoving = false;
-                hedle.walkSpriteIndex = 0;
-
-                // Set initial direction
-                hedle.direction = Phaser.Math.FloatBetween(Math.PI * 0.25, Math.PI * 0.75);
-
-                // Add to group
-                this.hedles.add(hedle);
-
-                // Start bob animation
-                this.createBobAnimation(hedle);
-
-                // Start movement cycle
-                this.startMovementCycle(hedle);
-            }
-
             createBobAnimation(hedle) {
-                // Create very subtle bobbing animation
-                // Just oscillate between current scale and slightly modified scale
                 const currentScaleX = hedle.scaleX;
                 const currentScaleY = hedle.scaleY;
 
                 hedle.bobTween = this.tweens.add({
                     targets: hedle,
-                    scaleY: currentScaleY * 1.02, // Just 2% stretch
-                    scaleX: currentScaleX * 0.98, // Just 2% squish
+                    scaleY: currentScaleY * 1.02,
+                    scaleX: currentScaleX * 0.98,
                     duration: 500,
                     yoyo: true,
                     repeat: -1,
@@ -288,7 +368,7 @@
                 const velY = Math.sin(hedle.direction) * this.HEDLE_SPEED;
                 hedle.body.setVelocity(velX, velY);
 
-                // Animate walking sprites (L_sd and R_sd)
+                // Animate walking sprites
                 hedle.walkTimer = this.time.addEvent({
                     delay: this.HEDLE_WALK_SPRITE_INTERVAL,
                     callback: () => {
@@ -302,7 +382,7 @@
                 });
 
                 // After move time, start waiting phase
-                this.time.delayedCall(this.HEDLE_MOVE_TIME, () => {
+                hedle.moveCycleTimer = this.time.delayedCall(this.HEDLE_MOVE_TIME, () => {
                     if (hedle.isDying || !hedle.active) return;
 
                     // Stop moving
@@ -316,10 +396,16 @@
                     hedle.setTexture(`body_${hedle.hedleId}_ft`);
 
                     // After wait time, restart cycle
-                    this.time.delayedCall(this.HEDLE_WAIT_TIME, () => {
+                    hedle.waitCycleTimer = this.time.delayedCall(this.HEDLE_WAIT_TIME, () => {
                         this.startMovementCycle(hedle);
                     });
                 });
+            }
+
+            canHitHedle(head, hedle) {
+                // Only hit if head is moving fast enough
+                const speed = Math.sqrt(head.body.velocity.x ** 2 + head.body.velocity.y ** 2);
+                return speed >= this.MIN_HEAD_DAMAGE_SPEED && !hedle.isDying;
             }
 
             hitHedle(head, hedle) {
@@ -330,16 +416,22 @@
                 // Clean up timers
                 if (hedle.walkTimer) hedle.walkTimer.destroy();
                 if (hedle.bobTween) hedle.bobTween.destroy();
+                if (hedle.moveCycleTimer) hedle.moveCycleTimer.destroy();
+                if (hedle.waitCycleTimer) hedle.waitCycleTimer.destroy();
 
                 // Death animation - rotate around feet
                 hedle.body.setVelocity(0, 0);
+                hedle.body.enable = false; // Disable physics to prevent further collisions
 
-                // Change origin to bottom center (feet) for rotation
+                // Change origin to bottom center for rotation
                 hedle.setOrigin(0.5, 1);
+
+                // Randomly fall left or right
+                const fallDirection = Phaser.Math.Between(0, 1) === 0 ? -1 : 1;
 
                 this.tweens.add({
                     targets: hedle,
-                    rotation: Math.PI / 2,
+                    rotation: (Math.PI / 2) * fallDirection,
                     alpha: 0,
                     duration: 1000,
                     onComplete: () => hedle.destroy()
@@ -357,6 +449,13 @@
                 head.body.setVelocity(newVelX, newVelY);
             }
 
+            headCollision(head1, head2) {
+                // Billiard-style collision already handled by Phaser's physics
+                // Just apply some damping
+                head1.body.velocity.scale(0.95);
+                head2.body.velocity.scale(0.95);
+            }
+
             checkGameOver() {
                 this.hedles.children.entries.forEach(hedle => {
                     if (!hedle.isDying && hedle.y > this.gameHeight - 150) {
@@ -366,15 +465,33 @@
             }
 
             endGame() {
+                if (this.gameOver) return; // Prevent multiple calls
+
                 this.gameOver = true;
 
-                if (this.hedleSpawnTimer) this.hedleSpawnTimer.destroy();
+                // Clean up all timers
+                if (this.eggSpawnTimer) this.eggSpawnTimer.destroy();
+                if (this.chargeTimer) this.chargeTimer.destroy();
 
+                // Stop all hedles
                 this.hedles.children.entries.forEach(hedle => {
-                    hedle.body.setVelocity(0, 0);
+                    if (hedle.body) hedle.body.setVelocity(0, 0);
                     if (hedle.walkTimer) hedle.walkTimer.destroy();
                     if (hedle.bobTween) hedle.bobTween.destroy();
+                    if (hedle.moveCycleTimer) hedle.moveCycleTimer.destroy();
+                    if (hedle.waitCycleTimer) hedle.waitCycleTimer.destroy();
                 });
+
+                // Clean up all eggs
+                this.eggs.forEach(egg => {
+                    // Cancel all growth timers
+                    for (let i = 1; i <= 4; i++) {
+                        if (egg[`growthTimer${i}`]) egg[`growthTimer${i}`].destroy();
+                    }
+                    if (egg.hatchTimer) egg.hatchTimer.destroy();
+                    egg.destroy();
+                });
+                this.eggs = [];
 
                 this.add.text(this.gameWidth / 2, this.gameHeight / 2, 'GAME OVER', {
                     fontSize: '96px',
@@ -433,6 +550,17 @@
                     this.cannon.setTint(0xffffff);
                 }
 
+                // Apply friction to heads
+                this.heads.children.entries.forEach(head => {
+                    head.body.velocity.scale(0.995); // Slight friction
+
+                    // Clean up stopped heads after a while
+                    const speed = Math.sqrt(head.body.velocity.x ** 2 + head.body.velocity.y ** 2);
+                    if (speed < 10) {
+                        head.destroy();
+                    }
+                });
+
                 // Clean up off-screen heads
                 this.heads.children.entries.forEach(head => {
                     if (head.x < -200 || head.x > this.gameWidth + 200 ||
@@ -454,7 +582,7 @@
                 default: 'arcade',
                 arcade: {
                     gravity: { y: 0 },
-                    debug: true // Always on until we fix everything
+                    debug: true
                 }
             },
             scene: HEDLES,
