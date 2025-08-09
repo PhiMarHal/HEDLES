@@ -52,6 +52,12 @@
                 this.HEDLE_WALK_SPRITE_INTERVAL = 400;
                 this.EGG_GROWTH_TIME = 4000; // 4 seconds to hatch
                 this.MIN_HEAD_DAMAGE_SPEED = 50; // Minimum speed to damage hedles
+                this.BAT_SPEED = 200; // Speed of bat flying across screen
+                this.SPELL_SLOT_SIZE = 80; // Size of spell UI slots
+                this.FIRE_EXPLOSION_RADIUS = 200; // Radius for fire spell
+                this.WATER_LINE_LENGTH = 600; // Length of water spell line
+                this.MULTI_SHOT_COUNT = 8; // Number of shots for multi spell
+                this.MULTI_SHOT_DELAY = 250; // Delay between multi shots
 
                 // Sprite counts
                 this.HEAD_COUNT = 119;
@@ -75,6 +81,11 @@
                 this.currentSpawnDelay = 4000; // Start with 4 second delay
                 this.spawnSpeedMultiplier = 0.9; // Make 10% faster each time
                 this.isFiring = false; // Reset firing state
+                this.currentBatDelay = 8000; // First bat after 8 seconds
+                this.batDelayIncrement = 2000; // Add 2 seconds each time
+                this.spellSlots = [null, null, null, null]; // 4 spell slots
+                this.selectedSpell = null; // Currently selected spell
+                this.isMultiShotting = false; // Track multi-shot state
             }
 
             preload() {
@@ -82,19 +93,64 @@
                 this.load.image('cannon', 'assets/cannon.png');
                 this.load.audio('cannon_shot', 'assets/cannon_shot.mp3');
 
-                // Load egg sprite (create placeholder if missing)
+                // Load egg sprite
                 this.load.image('egg', 'assets/item_egg.png');
 
-                // Add error handler for missing egg sprite
+                // Load bat animation sprites
+                this.load.image('bat_1', 'assets/bat_1.png');
+                this.load.image('bat_2', 'assets/bat_2.png');
+                this.load.image('bat_3', 'assets/bat_3.png');
+                this.load.image('bat_4', 'assets/bat_4.png');
+
+                // Load book sprites
+                this.load.image('tome_fire', 'assets/tome_fire.png');
+                this.load.image('tome_water', 'assets/tome_water.png');
+                this.load.image('tome_storm', 'assets/tome_storm.png');
+                this.load.image('tome_multi', 'assets/tome_multi.png');
+
+                // Load spell interface icons
+                this.load.image('icon_blank', 'assets/icon_blank.png');
+                this.load.image('icon_fire', 'assets/icon_fire.png');
+                this.load.image('icon_water', 'assets/icon_water.png');
+                this.load.image('icon_storm', 'assets/icon_storm.png');
+                this.load.image('icon_multi', 'assets/icon_multi.png');
+
+                // Load spell effect sprites
+                this.load.image('spell_fire', 'assets/spell_fire.png');
+                this.load.image('spell_water', 'assets/spell_water.png');
+                this.load.image('spell_storm', 'assets/spell_storm.png');
+                this.load.image('spell_multi', 'assets/spell_multi.png');
+
+                // Add error handler for missing sprites
                 this.load.on('loaderror', (file) => {
+                    console.warn('Missing asset:', file.key);
+
+                    // Create placeholders for missing assets
+                    const graphics = this.make.graphics({ x: 0, y: 0, add: false });
+
                     if (file.key === 'egg') {
-                        // Create white oval placeholder for egg
-                        const graphics = this.make.graphics({ x: 0, y: 0, add: false });
                         graphics.fillStyle(0xffffff, 1);
                         graphics.fillEllipse(32, 40, 64, 80);
                         graphics.generateTexture('egg', 64, 80);
-                        graphics.destroy();
+                    } else if (file.key.startsWith('bat_')) {
+                        graphics.fillStyle(0x444444, 1);
+                        graphics.fillRect(0, 0, 120, 60);
+                        graphics.generateTexture(file.key, 120, 60);
+                    } else if (file.key.startsWith('tome_')) {
+                        graphics.fillStyle(0x8B4513, 1);
+                        graphics.fillRect(0, 0, 60, 80);
+                        graphics.generateTexture(file.key, 60, 80);
+                    } else if (file.key.startsWith('icon_')) {
+                        graphics.fillStyle(0x666666, 1);
+                        graphics.fillRect(0, 0, 80, 80);
+                        graphics.generateTexture(file.key, 80, 80);
+                    } else if (file.key.startsWith('spell_')) {
+                        graphics.fillStyle(0xFF00FF, 1);
+                        graphics.fillCircle(40, 40, 40);
+                        graphics.generateTexture(file.key, 80, 80);
                     }
+
+                    graphics.destroy();
                 });
 
                 // Load head sprites
@@ -173,9 +229,492 @@
                     fill: '#ffffff'
                 }).setOrigin(0.5);
 
+                // Create spell interface
+                this.createSpellInterface();
+
                 // Start spawning with first egg immediately
                 this.spawnEgg();
                 this.scheduleNextEgg();
+
+                // Schedule first bat
+                this.scheduleBat();
+            }
+
+            createSpellInterface() {
+                this.spellIcons = [];
+                const slotY = this.gameHeight - 100;
+                const leftSlotX = [this.gameWidth / 2 - 200, this.gameWidth / 2 - 120];
+                const rightSlotX = [this.gameWidth / 2 + 120, this.gameWidth / 2 + 200];
+
+                // Create 4 spell slots
+                for (let i = 0; i < 4; i++) {
+                    const x = i < 2 ? leftSlotX[i] : rightSlotX[i - 2];
+
+                    // Create blank icon
+                    const icon = this.add.image(x, slotY, 'icon_blank');
+                    icon.setDisplaySize(this.SPELL_SLOT_SIZE, this.SPELL_SLOT_SIZE);
+                    icon.setInteractive();
+                    icon.slotIndex = i;
+
+                    // Add selection border (hidden by default)
+                    const border = this.add.graphics();
+                    border.lineStyle(4, 0xFFD800);
+                    border.strokeRect(
+                        x - this.SPELL_SLOT_SIZE / 2,
+                        slotY - this.SPELL_SLOT_SIZE / 2,
+                        this.SPELL_SLOT_SIZE,
+                        this.SPELL_SLOT_SIZE
+                    );
+                    border.setVisible(false);
+                    icon.border = border;
+
+                    // Handle clicking on spell slot
+                    icon.on('pointerdown', () => {
+                        if (!this.gameOver && !this.isMultiShotting) {
+                            this.selectSpell(i);
+                        }
+                    });
+
+                    this.spellIcons.push(icon);
+                }
+            }
+
+            selectSpell(index) {
+                if (!this.spellSlots[index]) return;
+
+                // Deselect all
+                this.spellIcons.forEach(icon => {
+                    icon.border.setVisible(false);
+                });
+
+                // Select this spell
+                if (this.selectedSpell === index) {
+                    this.selectedSpell = null; // Deselect if clicking same spell
+                } else {
+                    this.selectedSpell = index;
+                    this.spellIcons[index].border.setVisible(true);
+                }
+            }
+
+            addSpellToSlot(spellType) {
+                // Find first empty slot
+                const emptyIndex = this.spellSlots.indexOf(null);
+                if (emptyIndex === -1) return false; // No empty slots
+
+                // Add spell to slot
+                this.spellSlots[emptyIndex] = spellType;
+                this.spellIcons[emptyIndex].setTexture(`icon_${spellType}`);
+
+                return true;
+            }
+
+            consumeSelectedSpell() {
+                if (this.selectedSpell === null) return null;
+
+                const spell = this.spellSlots[this.selectedSpell];
+                if (!spell) return null;
+
+                // Remove spell from slot
+                this.spellSlots[this.selectedSpell] = null;
+                this.spellIcons[this.selectedSpell].setTexture('icon_blank');
+                this.spellIcons[this.selectedSpell].border.setVisible(false);
+
+                const consumedSpell = spell;
+                this.selectedSpell = null;
+
+                return consumedSpell;
+            }
+
+            scheduleBat() {
+                if (this.gameOver) return;
+
+                this.batTimer = this.time.delayedCall(this.currentBatDelay, () => {
+                    this.spawnBat();
+                    // Increase delay for next bat
+                    this.currentBatDelay += this.batDelayIncrement;
+                    // Schedule next bat
+                    this.scheduleBat();
+                });
+            }
+
+            spawnBat() {
+                if (this.gameOver) return;
+
+                // Random Y position in middle 60% of screen
+                const minY = this.gameHeight * 0.2;
+                const maxY = this.gameHeight * 0.8;
+                const batY = Phaser.Math.Between(minY, maxY);
+
+                // Random direction
+                const goingRight = Phaser.Math.Between(0, 1) === 1;
+                const startX = goingRight ? -100 : this.gameWidth + 100;
+                const endX = goingRight ? this.gameWidth + 100 : -100;
+
+                // Create bat
+                const bat = this.add.sprite(startX, batY, 'bat_1');
+                bat.setDisplaySize(120, 120);
+
+                // Flip sprite if going left
+                if (!goingRight) {
+                    bat.setFlipX(true);
+                }
+
+                // Animate bat wings
+                let batFrame = 0;
+                const batFrames = ['bat_1', 'bat_2', 'bat_3', 'bat_4'];
+                bat.animTimer = this.time.addEvent({
+                    delay: 100,
+                    callback: () => {
+                        batFrame = (batFrame + 1) % 4;
+                        bat.setTexture(batFrames[batFrame]);
+                    },
+                    loop: true
+                });
+
+                // Add random book
+                const bookTypes = ['fire', 'water', 'storm', 'multi'];
+                const bookType = Phaser.Utils.Array.GetRandom(bookTypes);
+                const book = this.add.image(startX, batY + 40, `tome_${bookType}`);
+                book.setDisplaySize(60, 60);
+                book.setInteractive();
+                book.bookType = bookType;
+
+                // Handle clicking on book
+                book.on('pointerdown', () => {
+                    if (this.addSpellToSlot(bookType)) {
+                        book.destroy();
+                        // Visual feedback
+                        const collected = this.add.text(book.x, book.y, `+${bookType.toUpperCase()}`, {
+                            fontSize: '32px',
+                            fill: '#FFD800'
+                        }).setOrigin(0.5);
+
+                        this.tweens.add({
+                            targets: collected,
+                            y: collected.y - 50,
+                            alpha: 0,
+                            duration: 1000,
+                            onComplete: () => collected.destroy()
+                        });
+                    }
+                });
+
+                // Move bat across screen
+                this.tweens.add({
+                    targets: [bat, book],
+                    x: endX,
+                    duration: this.gameWidth / this.BAT_SPEED * 1000,
+                    onComplete: () => {
+                        if (bat.animTimer) bat.animTimer.destroy();
+                        bat.destroy();
+                        if (book.active) book.destroy();
+                    }
+                });
+            }
+
+            fireCannon() {
+                // Check for multi-shot spell
+                if (this.selectedSpell !== null && this.spellSlots[this.selectedSpell] === 'multi') {
+                    const spell = this.consumeSelectedSpell();
+                    if (spell) {
+                        this.fireMultiShot();
+                        return;
+                    }
+                }
+
+                // Check for active spell
+                const activeSpell = this.selectedSpell !== null ? this.spellSlots[this.selectedSpell] : null;
+
+                // Play sound
+                if (this.cache.audio.exists('cannon_shot')) {
+                    this.sound.play('cannon_shot');
+                }
+
+                // Reset charging
+                this.cannonCharging = false;
+                this.cannon.setTint(0xffffff);
+
+                // Start cooldown
+                this.cannonOnCooldown = true;
+                this.cannonCooldownStart = this.time.now;
+
+                // Create head projectile
+                const headNum = Phaser.Math.Between(1, this.HEAD_COUNT);
+                const headId = headNum.toString().padStart(4, '0');
+
+                const head = this.physics.add.sprite(
+                    this.cannon.x,
+                    this.cannon.y - 50,
+                    `head_${headId}`
+                );
+
+                // Add to group immediately
+                this.heads.add(head);
+
+                // Configure the sprite
+                head.setDisplaySize(this.HEAD_SIZE, this.HEAD_SIZE);
+
+                // Set physics body
+                head.body.setSize(18, 18);
+                head.body.setOffset(16, 4);
+
+                // Apply spell properties if active
+                if (activeSpell) {
+                    head.spellType = activeSpell;
+                    this.consumeSelectedSpell();
+
+                    if (activeSpell === 'storm') {
+                        head.isPiercing = true;
+                        // Add storm trail effect
+                        this.addStormTrail(head);
+                    }
+
+                    // Add spell visual to head
+                    if (activeSpell !== 'storm') {
+                        const spellVisual = this.add.image(head.x, head.y, `spell_${activeSpell}`);
+                        spellVisual.setDisplaySize(80, 80);
+                        head.spellVisual = spellVisual;
+                    }
+                }
+
+                // Enable bouncing for billiard physics (except storm)
+                if (!head.isPiercing) {
+                    head.body.setBounce(1, 1);
+                }
+                head.body.setDrag(0);
+
+                // Calculate velocity
+                const velocityX = Math.cos(this.cannonAngle) * this.HEAD_SPEED;
+                const velocityY = Math.sin(this.cannonAngle) * this.HEAD_SPEED;
+
+                // Set velocity
+                head.body.velocity.set(velocityX, velocityY);
+            }
+
+            fireMultiShot() {
+                this.isMultiShotting = true;
+                let shotCount = 0;
+
+                const shootNext = () => {
+                    if (shotCount >= this.MULTI_SHOT_COUNT || this.gameOver) {
+                        this.isMultiShotting = false;
+                        // Start cooldown after multi-shot completes
+                        this.cannonOnCooldown = true;
+                        this.cannonCooldownStart = this.time.now;
+                        return;
+                    }
+
+                    // Play sound
+                    if (this.cache.audio.exists('cannon_shot')) {
+                        this.sound.play('cannon_shot');
+                    }
+
+                    // Create head
+                    const headNum = Phaser.Math.Between(1, this.HEAD_COUNT);
+                    const headId = headNum.toString().padStart(4, '0');
+
+                    const head = this.physics.add.sprite(
+                        this.cannon.x,
+                        this.cannon.y - 50,
+                        `head_${headId}`
+                    );
+
+                    this.heads.add(head);
+                    head.setDisplaySize(this.HEAD_SIZE, this.HEAD_SIZE);
+                    head.body.setSize(18, 18);
+                    head.body.setOffset(16, 4);
+                    head.body.setBounce(1, 1);
+                    head.body.setDrag(0);
+
+                    // Add multi spell visual
+                    const spellVisual = this.add.image(head.x, head.y, 'spell_multi');
+                    spellVisual.setDisplaySize(60, 60);
+                    head.multiVisual = spellVisual;
+
+                    // Fade visual over time
+                    this.tweens.add({
+                        targets: spellVisual,
+                        alpha: 0,
+                        duration: 1000,
+                        onComplete: () => spellVisual.destroy()
+                    });
+
+                    // Set velocity
+                    const velocityX = Math.cos(this.cannonAngle) * this.HEAD_SPEED;
+                    const velocityY = Math.sin(this.cannonAngle) * this.HEAD_SPEED;
+                    head.body.velocity.set(velocityX, velocityY);
+
+                    shotCount++;
+
+                    // Schedule next shot
+                    this.time.delayedCall(this.MULTI_SHOT_DELAY, shootNext);
+                };
+
+                // Reset charging state before starting multi-shot
+                this.cannonCharging = false;
+                this.cannon.setTint(0xffffff);
+
+                shootNext();
+            }
+
+            addStormTrail(head) {
+                head.trailTimer = this.time.addEvent({
+                    delay: 50,
+                    callback: () => {
+                        if (!head.active) {
+                            head.trailTimer.destroy();
+                            return;
+                        }
+
+                        const trail = this.add.image(head.x, head.y, 'spell_storm');
+                        trail.setDisplaySize(60, 60);
+                        trail.setAlpha(0.8);
+
+                        this.tweens.add({
+                            targets: trail,
+                            alpha: 0,
+                            duration: 500,
+                            onComplete: () => trail.destroy()
+                        });
+                    },
+                    loop: true
+                });
+            }
+
+            executeFireSpell(x, y) {
+                // Create circle of fire explosions
+                const numExplosions = 16;
+                for (let i = 0; i < numExplosions; i++) {
+                    const angle = (i / numExplosions) * Math.PI * 2;
+                    const explosionX = x + Math.cos(angle) * this.FIRE_EXPLOSION_RADIUS;
+                    const explosionY = y + Math.sin(angle) * this.FIRE_EXPLOSION_RADIUS;
+
+                    const explosion = this.add.image(explosionX, explosionY, 'spell_fire');
+                    explosion.setDisplaySize(80, 80);
+
+                    this.tweens.add({
+                        targets: explosion,
+                        alpha: 0,
+                        scaleX: 1.5,
+                        scaleY: 1.5,
+                        duration: 1000,
+                        onComplete: () => explosion.destroy()
+                    });
+                }
+
+                // Kill all hedles in radius
+                this.hedles.children.entries.forEach(hedle => {
+                    if (!hedle.isDying) {
+                        const distance = Phaser.Math.Distance.Between(x, y, hedle.x, hedle.y);
+                        if (distance <= this.FIRE_EXPLOSION_RADIUS) {
+                            this.killHedleBySpell(hedle);
+                        }
+                    }
+                });
+            }
+
+            executeWaterSpell(x, y) {
+                // Random angle for water line
+                const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+
+                // Create water line visual
+                const numSegments = 20;
+                for (let i = 0; i < numSegments; i++) {
+                    const segmentDist = (i / numSegments) * this.WATER_LINE_LENGTH - this.WATER_LINE_LENGTH / 2;
+                    const waterX = x + Math.cos(angle) * segmentDist;
+                    const waterY = y + Math.sin(angle) * segmentDist;
+
+                    const water = this.add.image(waterX, waterY, 'spell_water');
+                    water.setDisplaySize(60, 60);
+                    water.setRotation(angle);
+
+                    this.tweens.add({
+                        targets: water,
+                        alpha: 0,
+                        duration: 1000,
+                        onComplete: () => water.destroy()
+                    });
+                }
+
+                // Kill hedles along the line
+                this.hedles.children.entries.forEach(hedle => {
+                    if (!hedle.isDying) {
+                        // Calculate distance from hedle to line
+                        const lineStart = {
+                            x: x - Math.cos(angle) * this.WATER_LINE_LENGTH / 2,
+                            y: y - Math.sin(angle) * this.WATER_LINE_LENGTH / 2
+                        };
+                        const lineEnd = {
+                            x: x + Math.cos(angle) * this.WATER_LINE_LENGTH / 2,
+                            y: y + Math.sin(angle) * this.WATER_LINE_LENGTH / 2
+                        };
+
+                        const distToLine = this.distanceToLine(hedle, lineStart, lineEnd);
+                        if (distToLine <= 40) { // 40 pixel tolerance
+                            this.killHedleBySpell(hedle);
+                        }
+                    }
+                });
+            }
+
+            distanceToLine(point, lineStart, lineEnd) {
+                const A = point.x - lineStart.x;
+                const B = point.y - lineStart.y;
+                const C = lineEnd.x - lineStart.x;
+                const D = lineEnd.y - lineStart.y;
+
+                const dot = A * C + B * D;
+                const lenSq = C * C + D * D;
+                let param = -1;
+
+                if (lenSq !== 0) param = dot / lenSq;
+
+                let xx, yy;
+
+                if (param < 0) {
+                    xx = lineStart.x;
+                    yy = lineStart.y;
+                } else if (param > 1) {
+                    xx = lineEnd.x;
+                    yy = lineEnd.y;
+                } else {
+                    xx = lineStart.x + param * C;
+                    yy = lineStart.y + param * D;
+                }
+
+                const dx = point.x - xx;
+                const dy = point.y - yy;
+
+                return Math.sqrt(dx * dx + dy * dy);
+            }
+
+            killHedleBySpell(hedle) {
+                if (hedle.isDying) return;
+
+                hedle.isDying = true;
+
+                // Clean up timers
+                if (hedle.walkTimer) hedle.walkTimer.destroy();
+                if (hedle.bobTween) hedle.bobTween.destroy();
+                if (hedle.moveCycleTimer) hedle.moveCycleTimer.destroy();
+                if (hedle.waitCycleTimer) hedle.waitCycleTimer.destroy();
+
+                // Quick death for spell kills
+                hedle.body.setVelocity(0, 0);
+                hedle.body.enable = false;
+
+                this.tweens.add({
+                    targets: hedle,
+                    alpha: 0,
+                    scaleX: 0,
+                    scaleY: 0,
+                    duration: 500,
+                    onComplete: () => hedle.destroy()
+                });
+
+                // Update score
+                this.score++;
+                this.scoreText.setText(`Score: ${this.score}`);
             }
 
             scheduleNextEgg() {
@@ -312,7 +851,7 @@
             }
 
             attemptToFire() {
-                if (!this.isFiring || this.gameOver) return;
+                if (!this.isFiring || this.gameOver || this.isMultiShotting) return;
 
                 if (!this.cannonCharging && !this.cannonOnCooldown) {
                     this.startCannonCharge();
@@ -320,6 +859,8 @@
             }
 
             startCannonCharge() {
+                if (this.isMultiShotting) return; // Don't start charging during multi-shot
+
                 this.cannonCharging = true;
                 this.cannonChargeStart = this.time.now;
 
@@ -449,6 +990,29 @@
             hitHedle(head, hedle) {
                 if (hedle.isDying) return;
 
+                // Check for spell effects
+                if (head.spellType) {
+                    if (head.spellType === 'fire') {
+                        this.executeFireSpell(head.x, head.y);
+                        // Clean up fire spell visual
+                        if (head.spellVisual && head.spellVisual.active) {
+                            head.spellVisual.destroy();
+                        }
+                    } else if (head.spellType === 'water') {
+                        this.executeWaterSpell(head.x, head.y);
+                        // Clean up water spell visual
+                        if (head.spellVisual && head.spellVisual.active) {
+                            head.spellVisual.destroy();
+                        }
+                    }
+                    // Storm spell just pierces through
+
+                    // Remove spell type after use (except storm which keeps piercing)
+                    if (head.spellType !== 'storm') {
+                        head.spellType = null;
+                    }
+                }
+
                 hedle.isDying = true;
 
                 // Clean up timers
@@ -486,13 +1050,16 @@
                 this.score++;
                 this.scoreText.setText(`Score: ${this.score}`);
 
-                // Bounce head - reduce speed by half
-                const currentSpeed = Math.sqrt(head.body.velocity.x ** 2 + head.body.velocity.y ** 2);
-                const newSpeed = currentSpeed * 0.5;
-                const bounceAngle = Phaser.Math.FloatBetween(0, Math.PI * 2);
-                const newVelX = Math.cos(bounceAngle) * newSpeed;
-                const newVelY = Math.sin(bounceAngle) * newSpeed;
-                head.body.setVelocity(newVelX, newVelY);
+                // Bounce head (except storm which pierces)
+                if (!head.isPiercing) {
+                    // Reduce speed by half
+                    const currentSpeed = Math.sqrt(head.body.velocity.x ** 2 + head.body.velocity.y ** 2);
+                    const newSpeed = currentSpeed * 0.5;
+                    const bounceAngle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+                    const newVelX = Math.cos(bounceAngle) * newSpeed;
+                    const newVelY = Math.sin(bounceAngle) * newSpeed;
+                    head.body.setVelocity(newVelX, newVelY);
+                }
             }
 
             headCollision(head1, head2) {
@@ -517,6 +1084,7 @@
                 // Clean up all timers
                 if (this.eggSpawnTimer) this.eggSpawnTimer.destroy();
                 if (this.chargeTimer) this.chargeTimer.destroy();
+                if (this.batTimer) this.batTimer.destroy();
 
                 // Stop all hedles
                 this.hedles.children.entries.forEach(hedle => {
@@ -537,6 +1105,19 @@
                     egg.destroy();
                 });
                 this.eggs = [];
+
+                // Clean up all heads with spell visuals
+                this.heads.children.entries.forEach(head => {
+                    this.cleanupHead(head);
+                });
+
+                // Hide spell interface
+                if (this.spellIcons) {
+                    this.spellIcons.forEach(icon => {
+                        icon.setVisible(false);
+                        if (icon.border) icon.border.setVisible(false);
+                    });
+                }
 
                 this.add.text(this.gameWidth / 2, this.gameHeight / 2, 'GAME OVER', {
                     fontSize: '96px',
@@ -578,8 +1159,8 @@
                     const elapsed = this.time.now - this.cannonCooldownStart;
                     if (elapsed >= this.CANNON_COOLDOWN_TIME) {
                         this.cannonOnCooldown = false;
-                        // Try to fire again if still holding input
-                        if (this.isFiring) {
+                        // Try to fire again if still holding input (unless multi-shotting)
+                        if (this.isFiring && !this.isMultiShotting) {
                             this.attemptToFire();
                         }
                     }
@@ -596,8 +1177,35 @@
                 } else {
                     this.cannon.x = this.gameWidth / 2;
                     this.cannon.y = this.gameHeight - 100;
-                    this.cannon.setTint(0xffffff);
+
+                    // Tint cannon based on selected spell
+                    if (this.selectedSpell !== null && this.spellSlots[this.selectedSpell]) {
+                        const spellType = this.spellSlots[this.selectedSpell];
+                        if (spellType === 'fire') {
+                            this.cannon.setTint(0xff6600); // Orange for fire
+                        } else if (spellType === 'water') {
+                            this.cannon.setTint(0x0099ff); // Blue for water
+                        } else if (spellType === 'storm') {
+                            this.cannon.setTint(0x9900ff); // Purple for storm
+                        } else if (spellType === 'multi') {
+                            this.cannon.setTint(0x00ff00); // Green for multi
+                        }
+                    } else {
+                        this.cannon.setTint(0xffffff);
+                    }
                 }
+
+                // Update spell visuals to follow heads
+                this.heads.children.entries.forEach(head => {
+                    if (head.spellVisual && head.spellVisual.active) {
+                        head.spellVisual.x = head.x;
+                        head.spellVisual.y = head.y;
+                    }
+                    if (head.multiVisual && head.multiVisual.active) {
+                        head.multiVisual.x = head.x;
+                        head.multiVisual.y = head.y;
+                    }
+                });
 
                 // Keep hedles within bounds
                 this.hedles.children.entries.forEach(hedle => {
@@ -622,11 +1230,18 @@
                 this.heads.children.entries.forEach(head => {
                     if (head.x < -200 || head.x > this.gameWidth + 200 ||
                         head.y < -200 || head.y > this.gameHeight + 200) {
-                        head.destroy();
+                        this.cleanupHead(head);
                     }
                 });
 
                 this.checkGameOver();
+            }
+
+            cleanupHead(head) {
+                if (head.trailTimer) head.trailTimer.destroy();
+                if (head.spellVisual && head.spellVisual.active) head.spellVisual.destroy();
+                if (head.multiVisual && head.multiVisual.active) head.multiVisual.destroy();
+                head.destroy();
             }
         }
 
