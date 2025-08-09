@@ -43,9 +43,7 @@
                 this.CANNON_CHARGE_TIME = 500;
                 this.CANNON_COOLDOWN_TIME = 1000;
                 this.HEAD_SIZE = 128;
-                this.HEAD_PHYSICS_SIZE = 80; // Smaller collision box for heads
-                this.HEDLE_SIZE = 96;
-                this.HEDLE_PHYSICS_SIZE = 40; // Much smaller collision box for hedles
+                this.HEDLE_SIZE = 160;
                 this.HEAD_SPEED = 800;
                 this.HEDLE_SPEED = 75;
                 this.HEDLE_MOVE_TIME = 2000; // Move for 2 seconds
@@ -65,6 +63,7 @@
                 this.cannonChargeStart = 0;
                 this.cannonCooldownStart = 0;
                 this.lastPointerPosition = { x: 450, y: 400 };
+                this.hedlesPerSpawn = 1; // Start with 1 hedle per spawn
 
                 // Game dimensions
                 this.gameWidth = 900;
@@ -130,16 +129,21 @@
 
                 // Start spawning hedles
                 this.hedleSpawnTimer = this.time.addEvent({
-                    delay: 3000,
-                    callback: this.spawnHedle,
+                    delay: 4000, // Every 4 seconds
+                    callback: () => {
+                        // Spawn current number of hedles
+                        for (let i = 0; i < this.hedlesPerSpawn; i++) {
+                            this.time.delayedCall(i * 200, () => this.spawnHedle());
+                        }
+                        // Increase count for next spawn
+                        this.hedlesPerSpawn++;
+                    },
                     callbackScope: this,
                     loop: true
                 });
 
-                // Initial hedles
-                for (let i = 0; i < 3; i++) {
-                    this.time.delayedCall(i * 500, () => this.spawnHedle());
-                }
+                // Initial hedles (just 1)
+                this.spawnHedle();
             }
 
             updateCannonAngle() {
@@ -190,30 +194,32 @@
                 const headNum = Phaser.Math.Between(1, this.HEAD_COUNT);
                 const headId = headNum.toString().padStart(4, '0');
 
-                // First add to group, then create sprite
-                const head = this.heads.create(
+                // Create sprite using physics.add.sprite for better control
+                const head = this.physics.add.sprite(
                     this.cannon.x,
                     this.cannon.y - 50,
                     `head_${headId}`
                 );
 
+                // Add to group immediately
+                this.heads.add(head);
+
+                // Configure the sprite
                 head.setDisplaySize(this.HEAD_SIZE, this.HEAD_SIZE);
 
-                // Set circular physics body for heads
-                head.body.setCircle(this.HEAD_PHYSICS_SIZE / 2);
+                // Set square physics body (auto-centered)
+                head.body.setSize(18, 18);
+                head.body.setOffset(16, 4);
 
                 // Store speed
                 head.speed = this.HEAD_SPEED;
 
-                // Calculate and apply velocity
+                // Calculate velocity
                 const velocityX = Math.cos(this.cannonAngle) * this.HEAD_SPEED;
                 const velocityY = Math.sin(this.cannonAngle) * this.HEAD_SPEED;
 
-                // Force velocity to be set
-                head.setVelocityX(velocityX);
-                head.setVelocityY(velocityY);
-
-                console.log(`Head fired! Velocity: ${head.body.velocity.x.toFixed(0)}, ${head.body.velocity.y.toFixed(0)}`);
+                // Set velocity using multiple methods to ensure it sticks
+                head.body.velocity.set(velocityX, velocityY);
             }
 
             spawnHedle() {
@@ -223,24 +229,24 @@
                 const hedleId = hedleNum.toString().padStart(4, '0');
 
                 const spawnX = Phaser.Math.Between(100, this.gameWidth - 100);
-                const hedle = this.hedles.create(spawnX, -50, `body_${hedleId}_ft`);
+                const hedle = this.physics.add.sprite(spawnX, -50, `body_${hedleId}_ft`);
 
                 hedle.setDisplaySize(this.HEDLE_SIZE, this.HEDLE_SIZE);
 
                 // Set rectangular physics body (automatically centered)
-                hedle.body.setSize(this.HEDLE_PHYSICS_SIZE, this.HEDLE_PHYSICS_SIZE);
+                hedle.body.setSize(24, 32);
+                hedle.body.setOffset(12, 16);
 
                 hedle.hedleId = hedleId;
                 hedle.currentSprite = 'ft';
                 hedle.isDying = false;
                 hedle.isMoving = false;
                 hedle.walkSpriteIndex = 0;
-                hedle.baseScaleX = hedle.scaleX;
-                hedle.baseScaleY = hedle.scaleY;
 
                 // Set initial direction
                 hedle.direction = Phaser.Math.FloatBetween(Math.PI * 0.25, Math.PI * 0.75);
 
+                // Add to group
                 this.hedles.add(hedle);
 
                 // Start bob animation
@@ -251,11 +257,15 @@
             }
 
             createBobAnimation(hedle) {
-                // Create very subtle bobbing animation using absolute scale values
+                // Create very subtle bobbing animation
+                // Just oscillate between current scale and slightly modified scale
+                const currentScaleX = hedle.scaleX;
+                const currentScaleY = hedle.scaleY;
+
                 hedle.bobTween = this.tweens.add({
                     targets: hedle,
-                    scaleY: hedle.baseScaleY + 0.02, // Add just 0.02 to scale
-                    scaleX: hedle.baseScaleX - 0.02, // Subtract 0.02 from scale
+                    scaleY: currentScaleY * 1.02, // Just 2% stretch
+                    scaleX: currentScaleX * 0.98, // Just 2% squish
                     duration: 500,
                     yoyo: true,
                     repeat: -1,
@@ -321,8 +331,12 @@
                 if (hedle.walkTimer) hedle.walkTimer.destroy();
                 if (hedle.bobTween) hedle.bobTween.destroy();
 
-                // Death animation
+                // Death animation - rotate around feet
                 hedle.body.setVelocity(0, 0);
+
+                // Change origin to bottom center (feet) for rotation
+                hedle.setOrigin(0.5, 1);
+
                 this.tweens.add({
                     targets: hedle,
                     rotation: Math.PI / 2,
@@ -371,6 +385,27 @@
                     fontSize: '48px',
                     fill: '#ffffff'
                 }).setOrigin(0.5);
+
+                // Add play again button
+                const playAgainButton = this.add.text(this.gameWidth / 2, this.gameHeight / 2 + 200, 'PLAY AGAIN', {
+                    fontSize: '48px',
+                    fill: '#00ff00',
+                    backgroundColor: '#000000',
+                    padding: { x: 20, y: 10 }
+                }).setOrigin(0.5);
+
+                playAgainButton.setInteractive();
+                playAgainButton.on('pointerover', () => {
+                    playAgainButton.setScale(1.1);
+                    playAgainButton.setFill('#ffffff');
+                });
+                playAgainButton.on('pointerout', () => {
+                    playAgainButton.setScale(1);
+                    playAgainButton.setFill('#00ff00');
+                });
+                playAgainButton.on('pointerdown', () => {
+                    this.scene.restart();
+                });
             }
 
             update(time, delta) {
