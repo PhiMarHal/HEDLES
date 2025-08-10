@@ -41,7 +41,7 @@
                 // Game configuration
                 this.CANNON_SIZE = 96;
                 this.CANNON_CHARGE_TIME = 500;
-                this.CANNON_COOLDOWN_TIME = 1000; // Back to 1 second
+                this.CANNON_COOLDOWN_TIME = 1000; // 1 second
                 this.HEAD_SIZE = 128;
                 this.HEDLE_SIZE = 160;
                 this.EGG_SIZE = 80; // Starting egg size
@@ -87,7 +87,9 @@
                 this.isMultiShotting = false; // Track multi-shot state
                 this.isFiring = false; // Track firing state
                 this.shotQueued = false; // Track queued shots
-                this.isInteractingWithUI = false; // Track UI interactions
+                this.uiClickThisFrame = false; // Track UI clicks this frame
+                this.scoreDigits = []; // Track score digit sprites
+                this.DIGIT_SIZE = 96; // Height of each digit sprite (64x96)
                 this.gameOverFadeOverlay = null; // Screen fade overlay
             }
 
@@ -95,7 +97,6 @@
                 // Load cannon assets
                 this.load.image('cannon', 'assets/cannon.png');
                 this.load.audio('cannon_shot', 'assets/cannon_shot.mp3');
-                this.load.audio('cannon_ready', 'assets/cannon_ready.mp3');
 
                 // Load background
                 this.load.image('background', 'assets/background.png');
@@ -136,6 +137,11 @@
                 this.load.image('spell_storm', 'assets/spell_storm.png');
                 this.load.image('spell_multi', 'assets/spell_multi.png');
 
+                // Load digit sprites for score
+                for (let i = 0; i <= 9; i++) {
+                    this.load.image(`digit_${i}`, `assets/digit_${i}.png`);
+                }
+
                 // Add error handler for missing sprites
                 this.load.on('loaderror', (file) => {
                     console.warn('Missing asset:', file.key);
@@ -167,6 +173,14 @@
                         graphics.fillStyle(0xFF00FF, 1);
                         graphics.fillCircle(40, 40, 40);
                         graphics.generateTexture(file.key, 80, 80);
+                    } else if (file.key.startsWith('digit_')) {
+                        graphics.fillStyle(0xFFFFFF, 1);
+                        graphics.fillRect(0, 0, 64, 96); // Correct 64x96 dimensions
+                        // Add the digit number as simple text
+                        const digitNum = file.key.split('_')[1];
+                        graphics.fillStyle(0x000000, 1);
+                        graphics.fillRect(20, 30, 24, 36);
+                        graphics.generateTexture(file.key, 64, 96);
                     }
 
                     graphics.destroy();
@@ -251,12 +265,10 @@
                 this.input.on('pointerdown', (pointer) => {
                     this.lastPointerPosition = { x: pointer.x, y: pointer.y };
                     this.updateCannonAngle();
-                    // Only start firing if not interacting with UI
-                    if (!this.isInteractingWithUI) {
+                    // Only start firing if no UI was clicked this frame
+                    if (!this.uiClickThisFrame) {
                         this.startFiring();
                     }
-                    // Reset UI interaction flag
-                    this.isInteractingWithUI = false;
                 });
 
                 this.input.on('pointerup', () => {
@@ -272,11 +284,11 @@
                     this.stopFiring();
                 });
 
-                // Score text
-                this.scoreText = this.add.text(this.gameWidth / 2, 50, 'Score: 0', {
-                    fontSize: '48px',
-                    fill: '#ffffff'
-                }).setOrigin(0.5).setDepth(200); // Above fade overlay
+                // Track firing state
+                this.isFiring = false;
+
+                // Initialize score display with 0
+                this.updateScoreDisplay();
 
                 // Create spell interface
                 this.createSpellInterface();
@@ -287,24 +299,6 @@
 
                 // Schedule first bat
                 this.scheduleBat();
-            }
-
-            createReadyParticles() {
-                // Create golden particle system around cannon
-                this.cannonReadyParticles = this.add.particles(0, 0, 'golden_dot', {
-                    scale: { start: 0.8, end: 0.3 },
-                    alpha: { start: 1.0, end: 0.2 },
-                    speed: { min: 30, max: 60 },
-                    lifespan: 2000,
-                    frequency: 150,
-                    quantity: 2,
-                    emitZone: {
-                        type: 'edge',
-                        source: new Phaser.Geom.Circle(0, 0, 70),
-                        quantity: 2
-                    }
-                });
-                this.cannonReadyParticles.setVisible(false);
             }
 
             createSpellInterface() {
@@ -340,7 +334,12 @@
                     // Handle clicking on spell slot
                     icon.on('pointerdown', () => {
                         if (!this.gameOver && !this.isMultiShotting) {
-                            this.isInteractingWithUI = true; // Mark UI interaction
+                            this.uiClickThisFrame = true; // Mark UI interaction
+                            // Reset flag on next frame
+                            this.time.delayedCall(10, () => {
+                                this.uiClickThisFrame = false;
+                            });
+
                             this.selectSpell(i);
                         }
                     });
@@ -398,6 +397,34 @@
                 return consumedSpell;
             }
 
+            updateScoreDisplay() {
+                // Clear existing digit sprites
+                this.scoreDigits.forEach(digit => digit.destroy());
+                this.scoreDigits = [];
+
+                // Convert score to string to get individual digits
+                const scoreStr = this.score.toString();
+                const numDigits = scoreStr.length;
+
+                // Calculate starting position for centering
+                const digitWidth = 64; // Actual width of digit sprites
+                const digitHeight = this.DIGIT_SIZE; // 96px height
+                const totalWidth = numDigits * digitWidth;
+                const startX = (this.gameWidth / 2) - (totalWidth / 2) + (digitWidth / 2);
+
+                // Create sprite for each digit
+                for (let i = 0; i < numDigits; i++) {
+                    const digitValue = scoreStr[i];
+                    const digitX = startX + (i * digitWidth);
+
+                    const digitSprite = this.add.image(digitX, 60, `digit_${digitValue}`);
+                    digitSprite.setDisplaySize(digitWidth, digitHeight);
+                    digitSprite.setDepth(200); // Above fade overlay
+
+                    this.scoreDigits.push(digitSprite);
+                }
+            }
+
             scheduleBat() {
                 if (this.gameOver) return;
 
@@ -426,26 +453,28 @@
                 // Create bat
                 const bat = this.add.sprite(startX, batY, 'bat_1');
                 bat.setDisplaySize(180, 180); // 50% bigger
+                bat.setDepth(300); // Always in front of darkness
 
                 // Flip sprite if going left
                 if (!goingRight) {
                     bat.setFlipX(true);
                 }
 
-                // Add golden particles around bat
+                // Add golden particles around bat - RANDOM type for full area coverage
                 const batParticles = this.add.particles(startX, batY, 'golden_dot', {
                     scale: { start: 0.6, end: 0.2 },
-                    alpha: { start: 0.8, end: 0.1 },
-                    speed: { min: 20, max: 40 },
-                    lifespan: 1500,
+                    alpha: { start: 1.0, end: 0.2 },
+                    speed: { min: 40, max: 80 },
+                    lifespan: 2000,
                     frequency: 100,
-                    quantity: 1,
+                    quantity: 2,
                     emitZone: {
-                        type: 'edge',
-                        source: new Phaser.Geom.Circle(0, 0, 50),
-                        quantity: 1
+                        type: 'random',
+                        source: new Phaser.Geom.Circle(0, 0, 64), // Random particles within 400px radius
+                        quantity: 2
                     }
                 });
+                batParticles.setDepth(300); // Same as bat
 
                 // Animate bat wings
                 let batFrame = 0;
@@ -466,10 +495,16 @@
                 book.setDisplaySize(90, 90); // 50% bigger
                 book.setInteractive();
                 book.bookType = bookType;
+                book.setDepth(300); // Same as bat
 
                 // Handle clicking on book
                 book.on('pointerdown', () => {
-                    this.isInteractingWithUI = true; // Mark UI interaction
+                    this.uiClickThisFrame = true; // Mark UI interaction
+                    // Reset flag on next frame
+                    this.time.delayedCall(10, () => {
+                        this.uiClickThisFrame = false;
+                    });
+
                     if (this.addSpellToSlot(bookType)) {
                         // Play pickup sound
                         if (this.cache.audio.exists('pickup_spell')) {
@@ -505,14 +540,6 @@
                         batParticles.destroy();
                     }
                 });
-            }
-
-            tryToFire() {
-                if (this.gameOver || this.isMultiShotting) return;
-
-                if (!this.cannonCharging && !this.cannonOnCooldown) {
-                    this.startCannonCharge();
-                }
             }
 
             startFiring() {
@@ -608,6 +635,7 @@
                 // Apply spell properties if active
                 if (activeSpell) {
                     head.spellType = activeSpell;
+                    head.hasHitHedle = false; // Track if special head has hit a hedle yet
                     this.consumeSelectedSpell();
 
                     if (activeSpell === 'storm') {
@@ -679,6 +707,9 @@
                     head.body.setOffset(16, 4); // Keep original physics body position
                     head.body.setBounce(1, 1);
                     head.body.setDrag(0);
+
+                    // Mark as special multi-shot head
+                    head.hasHitHedle = false; // Track if this multi head has hit a hedle yet
 
                     // Add multi spell visual
                     const spellVisual = this.add.image(head.x, head.y, 'spell_multi');
@@ -899,7 +930,7 @@
 
                 // Update score
                 this.score++;
-                this.scoreText.setText(`Score: ${this.score}`);
+                this.updateScoreDisplay();
             }
 
             scheduleNextEgg() {
@@ -1098,6 +1129,11 @@
             hitHedle(head, hedle) {
                 if (hedle.isDying) return;
 
+                // Mark special heads as having hit a hedle (enables collisions with other heads)
+                if (head.spellType || head.multiVisual) {
+                    head.hasHitHedle = true;
+                }
+
                 // Check for spell effects
                 if (head.spellType) {
                     if (head.spellType === 'fire') {
@@ -1163,7 +1199,7 @@
 
                 // Update score
                 this.score++;
-                this.scoreText.setText(`Score: ${this.score}`);
+                this.updateScoreDisplay();
 
                 // Bounce head (except storm which pierces)
                 if (!head.isPiercing) {
@@ -1187,20 +1223,70 @@
             }
 
             canHeadsCollide(head1, head2) {
-                // Don't allow special heads to collide with normal heads
-                const head1HasSpell = head1.spellType || head1.multiVisual;
-                const head2HasSpell = head2.spellType || head2.multiVisual;
+                // Check if heads are special (have spell properties or multi visual)
+                const head1IsSpecial = head1.spellType || head1.multiVisual;
+                const head2IsSpecial = head2.spellType || head2.multiVisual;
 
-                // If either head has a spell, don't collide
-                return !head1HasSpell && !head2HasSpell;
+                // If both heads are normal, they can collide
+                if (!head1IsSpecial && !head2IsSpecial) {
+                    return true;
+                }
+
+                // Storm spells never collide (keep piercing forever)
+                if ((head1IsSpecial && head1.spellType === 'storm') ||
+                    (head2IsSpecial && head2.spellType === 'storm')) {
+                    return false;
+                }
+
+                // If either non-storm special head hasn't hit a hedle yet, no collision
+                if (head1IsSpecial && head1.hasHitHedle === false) {
+                    return false;
+                }
+                if (head2IsSpecial && head2.hasHitHedle === false) {
+                    return false;
+                }
+
+                // If we get here, any special heads involved have already hit hedles
+                // So they can now collide normally
+                return true;
             }
 
             checkGameOver() {
                 this.hedles.children.entries.forEach(hedle => {
-                    if (!hedle.isDying && hedle.y > this.gameHeight - 150) {
+                    if (!hedle.isDying && hedle.y > this.gameHeight - 160) {
                         this.endGame();
                     }
                 });
+            }
+
+            updateScreenFade() {
+                if (!this.gameOverFadeOverlay) return;
+
+                let maxThreatLevel = 0;
+
+                // Check all hedles for proximity to bottom
+                this.hedles.children.entries.forEach(hedle => {
+                    if (!hedle.isDying) {
+                        const threatZoneStart = this.gameHeight * 0.2; // Lower 80% of screen
+                        const gameOverZone = this.gameHeight - 160; // Game over line
+
+                        if (hedle.y > threatZoneStart) {
+                            // Calculate threat level (0 to 1)
+                            const threatLevel = Math.min((hedle.y - threatZoneStart) / (gameOverZone - threatZoneStart), 1);
+                            maxThreatLevel = Math.max(maxThreatLevel, threatLevel);
+                        }
+                    }
+                });
+
+                // Set fade opacity based on max threat level (0 to 80% opacity)
+                const fadeOpacity = maxThreatLevel * 0.8;
+
+                // Clear and redraw the graphics with new alpha
+                this.gameOverFadeOverlay.clear();
+                if (fadeOpacity > 0) {
+                    this.gameOverFadeOverlay.fillStyle(0x000000, fadeOpacity);
+                    this.gameOverFadeOverlay.fillRect(0, 0, this.gameWidth, this.gameHeight);
+                }
             }
 
             endGame() {
@@ -1249,18 +1335,16 @@
                     });
                 }
 
+                // Hide score digits
+                this.scoreDigits.forEach(digit => digit.setVisible(false));
+
                 this.add.text(this.gameWidth / 2, this.gameHeight / 2, 'GAME OVER', {
                     fontSize: '96px',
                     fill: '#ff0000'
                 }).setOrigin(0.5).setDepth(200); // Above fade overlay
 
-                this.add.text(this.gameWidth / 2, this.gameHeight / 2 + 100, `Final Score: ${this.score}`, {
-                    fontSize: '48px',
-                    fill: '#ffffff'
-                }).setOrigin(0.5).setDepth(200); // Above fade overlay
-
                 // Add play again button
-                const playAgainButton = this.add.text(this.gameWidth / 2, this.gameHeight / 2 + 200, 'PLAY AGAIN', {
+                const playAgainButton = this.add.text(this.gameWidth / 2, this.gameHeight / 2 + 120, 'PLAY AGAIN', {
                     fontSize: '48px',
                     fill: '#00ff00',
                     backgroundColor: '#000000',
@@ -1378,36 +1462,6 @@
                 });
 
                 this.checkGameOver();
-            }
-
-            updateScreenFade() {
-                if (!this.gameOverFadeOverlay) return;
-
-                let maxThreatLevel = 0;
-
-                // Check all hedles for proximity to bottom
-                this.hedles.children.entries.forEach(hedle => {
-                    if (!hedle.isDying) {
-                        const threatZoneStart = this.gameHeight * 0.5; // Lower 50% of screen
-                        const gameOverZone = this.gameHeight - 160; // Game over line
-
-                        if (hedle.y > threatZoneStart) {
-                            // Calculate threat level (0 to 1)
-                            const threatLevel = Math.min((hedle.y - threatZoneStart) / (gameOverZone - threatZoneStart), 1);
-                            maxThreatLevel = Math.max(maxThreatLevel, threatLevel);
-                        }
-                    }
-                });
-
-                // Set fade opacity based on max threat level (0 to 80% opacity)
-                const fadeOpacity = maxThreatLevel * 0.8;
-
-                // Clear and redraw the graphics with new alpha
-                this.gameOverFadeOverlay.clear();
-                if (fadeOpacity > 0) {
-                    this.gameOverFadeOverlay.fillStyle(0x000000, fadeOpacity);
-                    this.gameOverFadeOverlay.fillRect(0, 0, this.gameWidth, this.gameHeight);
-                }
             }
 
             cleanupHead(head) {
