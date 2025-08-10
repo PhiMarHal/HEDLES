@@ -86,6 +86,7 @@
                 this.selectedSpell = null; // Currently selected spell
                 this.isMultiShotting = false; // Track multi-shot state
                 this.isFiring = false; // Track firing state
+                this.shotQueued = false; // Track queued shots
                 this.isInteractingWithUI = false; // Track UI interactions
                 this.gameOverFadeOverlay = null; // Screen fade overlay
             }
@@ -233,14 +234,9 @@
                 this.physics.add.collider(this.heads, this.heads, this.headCollision, this.canHeadsCollide, this);
 
                 // Create screen fade overlay for tension effect
-                this.gameOverFadeOverlay = this.add.rectangle(
-                    this.gameWidth / 2,
-                    this.gameHeight / 2,
-                    this.gameWidth,
-                    this.gameHeight,
-                    0x000000,
-                    0
-                );
+                this.gameOverFadeOverlay = this.add.graphics();
+                this.gameOverFadeOverlay.fillStyle(0x000000, 0);
+                this.gameOverFadeOverlay.fillRect(0, 0, this.gameWidth, this.gameHeight);
                 this.gameOverFadeOverlay.setDepth(100); // Above everything else
 
                 // Input handling - HOLD TO FIRE SYSTEM
@@ -524,6 +520,7 @@
 
             stopFiring() {
                 this.isFiring = false;
+                this.shotQueued = false; // Clear any queued shots
             }
 
             attemptToFire() {
@@ -531,6 +528,9 @@
 
                 if (!this.cannonCharging && !this.cannonOnCooldown) {
                     this.startCannonCharge();
+                } else {
+                    // Queue up a shot if cannon is busy
+                    this.shotQueued = true;
                 }
             }
 
@@ -593,7 +593,7 @@
 
                 // Configure the sprite
                 head.setDisplaySize(this.HEAD_SIZE, this.HEAD_SIZE);
-                head.setOrigin(0.5, 0.25); // Move rotation point up to nose area (center of actual head)
+                head.setOrigin(0.5, 0.25); // Perfect rotation around nose area
 
                 // Set physics body
                 head.body.setSize(18, 18);
@@ -667,7 +667,7 @@
 
                     this.heads.add(head);
                     head.setDisplaySize(this.HEAD_SIZE, this.HEAD_SIZE);
-                    head.setOrigin(0.5, 0.4); // Move rotation point up to nose area (center of actual head)
+                    head.setOrigin(0.5, 0.25); // Perfect rotation around nose area
                     head.body.setSize(18, 18);
                     head.body.setOffset(16, 4); // Keep original physics body position
                     head.body.setBounce(1, 1);
@@ -764,7 +764,7 @@
                 // Random angle for water line
                 const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
 
-                // Create water line visual with sequential wave animation
+                // Create water line visual with instant sequential wave animation
                 const numSegments = 40; // More segments for longer line
                 for (let i = 0; i < numSegments; i++) {
                     const segmentDist = (i / numSegments) * this.WATER_LINE_LENGTH - this.WATER_LINE_LENGTH / 2;
@@ -775,29 +775,25 @@
                     water.setDisplaySize(60, 60);
                     water.setRotation(angle);
 
-                    // Sequential wave animation - each sprite starts 50ms after the previous
+                    // Instant wave animation with staggered timing - starts immediately
                     const waveDelay = i * 50; // 50ms stagger between each sprite
                     const waveAmplitude = 25;
                     const waveFrequency = 800;
 
-                    // Start wave animation after delay
-                    this.time.delayedCall(waveDelay, () => {
-                        if (water.active) {
-                            const perpAngle = angle + Math.PI / 2;
-                            const startX = water.x;
-                            const startY = water.y;
+                    const perpAngle = angle + Math.PI / 2;
+                    const startX = water.x;
+                    const startY = water.y;
 
-                            // Create wave motion
-                            this.tweens.add({
-                                targets: water,
-                                x: startX + Math.cos(perpAngle) * waveAmplitude,
-                                y: startY + Math.sin(perpAngle) * waveAmplitude,
-                                duration: waveFrequency / 2,
-                                yoyo: true,
-                                repeat: 2, // More wave cycles
-                                ease: 'Sine.easeInOut'
-                            });
-                        }
+                    // Start wave motion immediately with delay built into the tween
+                    this.tweens.add({
+                        targets: water,
+                        x: startX + Math.cos(perpAngle) * waveAmplitude,
+                        y: startY + Math.sin(perpAngle) * waveAmplitude,
+                        duration: waveFrequency / 2,
+                        delay: waveDelay, // Delay built into tween, not delayedCall
+                        yoyo: true,
+                        repeat: 2, // More wave cycles
+                        ease: 'Sine.easeInOut'
                     });
 
                     // Fade out over longer time to see wave effect
@@ -1205,12 +1201,10 @@
                 this.gameOver = true;
                 this.stopFiring(); // Stop manual firing
 
-                // Fade screen to black
-                this.tweens.add({
-                    targets: this.gameOverFadeOverlay,
-                    alpha: 1.0, // Full black
-                    duration: 1000
-                });
+                // Fade screen to black using graphics
+                this.gameOverFadeOverlay.clear();
+                this.gameOverFadeOverlay.fillStyle(0x000000, 1.0); // Full black
+                this.gameOverFadeOverlay.fillRect(0, 0, this.gameWidth, this.gameHeight);
 
                 // Clean up all timers
                 if (this.eggSpawnTimer) this.eggSpawnTimer.destroy();
@@ -1290,8 +1284,9 @@
                     const elapsed = this.time.now - this.cannonCooldownStart;
                     if (elapsed >= this.CANNON_COOLDOWN_TIME) {
                         this.cannonOnCooldown = false;
-                        // Try to fire again if still holding input
-                        if (this.isFiring && !this.isMultiShotting) {
+                        // Handle queued shots or continued firing
+                        if ((this.isFiring || this.shotQueued) && !this.isMultiShotting) {
+                            this.shotQueued = false; // Clear the queue
                             this.attemptToFire();
                         }
                     }
@@ -1386,8 +1381,8 @@
                 // Check all hedles for proximity to bottom
                 this.hedles.children.entries.forEach(hedle => {
                     if (!hedle.isDying) {
-                        const threatZoneStart = this.gameHeight * 0.8; // Lower 20% of screen
-                        const gameOverZone = this.gameHeight - 150; // Game over line
+                        const threatZoneStart = this.gameHeight * 0.5; // Lower 50% of screen
+                        const gameOverZone = this.gameHeight - 160; // Game over line
 
                         if (hedle.y > threatZoneStart) {
                             // Calculate threat level (0 to 1)
@@ -1398,8 +1393,12 @@
                 });
 
                 // Set fade opacity based on max threat level (0 to 50% opacity)
-                const fadeOpacity = maxThreatLevel * 0.5;
-                this.gameOverFadeOverlay.setAlpha(fadeOpacity);
+                const fadeOpacity = maxThreatLevel * 0.8;
+
+                // Clear and redraw the graphics with new alpha
+                this.gameOverFadeOverlay.clear();
+                this.gameOverFadeOverlay.fillStyle(0x000000, fadeOpacity);
+                this.gameOverFadeOverlay.fillRect(0, 0, this.gameWidth, this.gameHeight);
             }
 
             cleanupHead(head) {
