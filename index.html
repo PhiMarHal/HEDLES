@@ -226,6 +226,7 @@
                 this.cannon = this.add.image(this.gameWidth / 2, this.gameHeight - 100, 'cannon');
                 this.cannon.setDisplaySize(this.CANNON_SIZE, this.CANNON_SIZE * 2);
                 this.cannon.setOrigin(0.5, 0.5);
+                this.cannon.setDepth(200); // Above fade overlay
 
                 // Set up collision detection with condition check
                 this.physics.add.overlap(this.heads, this.hedles, this.hitHedle, this.canHitHedle, this);
@@ -237,7 +238,7 @@
                 this.gameOverFadeOverlay = this.add.graphics();
                 this.gameOverFadeOverlay.fillStyle(0x000000, 0);
                 this.gameOverFadeOverlay.fillRect(0, 0, this.gameWidth, this.gameHeight);
-                this.gameOverFadeOverlay.setDepth(100); // Above everything else
+                this.gameOverFadeOverlay.setDepth(50); // Below UI elements but above game objects
 
                 // Input handling - HOLD TO FIRE SYSTEM
                 this.input.removeAllListeners(); // Clear any existing listeners
@@ -275,7 +276,7 @@
                 this.scoreText = this.add.text(this.gameWidth / 2, 50, 'Score: 0', {
                     fontSize: '48px',
                     fill: '#ffffff'
-                }).setOrigin(0.5);
+                }).setOrigin(0.5).setDepth(200); // Above fade overlay
 
                 // Create spell interface
                 this.createSpellInterface();
@@ -321,6 +322,7 @@
                     icon.setDisplaySize(this.SPELL_SLOT_SIZE, this.SPELL_SLOT_SIZE);
                     icon.setInteractive();
                     icon.slotIndex = i;
+                    icon.setDepth(200); // Above fade overlay
 
                     // Add selection border (hidden by default)
                     const border = this.add.graphics();
@@ -332,6 +334,7 @@
                         this.SPELL_SLOT_SIZE
                     );
                     border.setVisible(false);
+                    border.setDepth(200); // Above fade overlay
                     icon.border = border;
 
                     // Handle clicking on spell slot
@@ -520,7 +523,7 @@
 
             stopFiring() {
                 this.isFiring = false;
-                this.shotQueued = false; // Clear any queued shots
+                // DON'T clear shotQueued here - let queued shots fire even after releasing click
             }
 
             attemptToFire() {
@@ -548,6 +551,9 @@
             }
 
             fireCannon() {
+                // Clear any queued shot since we're firing now
+                this.shotQueued = false;
+
                 // Check for multi-shot spell
                 if (this.selectedSpell !== null && this.spellSlots[this.selectedSpell] === 'multi') {
                     const spell = this.consumeSelectedSpell();
@@ -636,6 +642,7 @@
 
             fireMultiShot() {
                 this.isMultiShotting = true;
+                this.shotQueued = false; // Clear any queued shot
                 let shotCount = 0;
 
                 const shootNext = () => {
@@ -764,8 +771,10 @@
                 // Random angle for water line
                 const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
 
-                // Create water line visual with instant sequential wave animation
-                const numSegments = 40; // More segments for longer line
+                // Create water line visual with repeating wave pattern
+                const numSegments = 40;
+                const waveLength = 400; // Wave repeats every 400 pixels
+
                 for (let i = 0; i < numSegments; i++) {
                     const segmentDist = (i / numSegments) * this.WATER_LINE_LENGTH - this.WATER_LINE_LENGTH / 2;
                     const waterX = x + Math.cos(angle) * segmentDist;
@@ -775,8 +784,8 @@
                     water.setDisplaySize(60, 60);
                     water.setRotation(angle);
 
-                    // Instant wave animation with staggered timing - starts immediately
-                    const waveDelay = i * 50; // 50ms stagger between each sprite
+                    // Calculate wave phase based on position along line
+                    const wavePhase = (Math.abs(segmentDist) % waveLength) / waveLength * Math.PI * 2;
                     const waveAmplitude = 25;
                     const waveFrequency = 800;
 
@@ -784,24 +793,23 @@
                     const startX = water.x;
                     const startY = water.y;
 
-                    // Start wave motion immediately with delay built into the tween
+                    // Start wave motion immediately with different phase for each segment
                     this.tweens.add({
                         targets: water,
                         x: startX + Math.cos(perpAngle) * waveAmplitude,
                         y: startY + Math.sin(perpAngle) * waveAmplitude,
                         duration: waveFrequency / 2,
-                        delay: waveDelay, // Delay built into tween, not delayedCall
+                        delay: wavePhase * 100, // Phase-based delay for wave pattern
                         yoyo: true,
-                        repeat: 2, // More wave cycles
+                        repeat: 3, // More wave cycles
                         ease: 'Sine.easeInOut'
                     });
 
-                    // Fade out over longer time to see wave effect
+                    // Fade out
                     this.tweens.add({
                         targets: water,
                         alpha: 0,
                         duration: 2000,
-                        delay: waveDelay,
                         onComplete: () => water.destroy()
                     });
                 }
@@ -1201,10 +1209,7 @@
                 this.gameOver = true;
                 this.stopFiring(); // Stop manual firing
 
-                // Fade screen to black using graphics
-                this.gameOverFadeOverlay.clear();
-                this.gameOverFadeOverlay.fillStyle(0x000000, 1.0); // Full black
-                this.gameOverFadeOverlay.fillRect(0, 0, this.gameWidth, this.gameHeight);
+                // Don't change screen fade - let it stay at current level (max 0.8 opacity)
 
                 // Clean up all timers
                 if (this.eggSpawnTimer) this.eggSpawnTimer.destroy();
@@ -1247,12 +1252,12 @@
                 this.add.text(this.gameWidth / 2, this.gameHeight / 2, 'GAME OVER', {
                     fontSize: '96px',
                     fill: '#ff0000'
-                }).setOrigin(0.5);
+                }).setOrigin(0.5).setDepth(200); // Above fade overlay
 
                 this.add.text(this.gameWidth / 2, this.gameHeight / 2 + 100, `Final Score: ${this.score}`, {
                     fontSize: '48px',
                     fill: '#ffffff'
-                }).setOrigin(0.5);
+                }).setOrigin(0.5).setDepth(200); // Above fade overlay
 
                 // Add play again button
                 const playAgainButton = this.add.text(this.gameWidth / 2, this.gameHeight / 2 + 200, 'PLAY AGAIN', {
@@ -1260,7 +1265,7 @@
                     fill: '#00ff00',
                     backgroundColor: '#000000',
                     padding: { x: 20, y: 10 }
-                }).setOrigin(0.5);
+                }).setOrigin(0.5).setDepth(200); // Above fade overlay
 
                 playAgainButton.setInteractive();
                 playAgainButton.on('pointerover', () => {
@@ -1284,10 +1289,12 @@
                     const elapsed = this.time.now - this.cannonCooldownStart;
                     if (elapsed >= this.CANNON_COOLDOWN_TIME) {
                         this.cannonOnCooldown = false;
-                        // Handle queued shots or continued firing
-                        if ((this.isFiring || this.shotQueued) && !this.isMultiShotting) {
+                        // Handle queued shots first, then continued firing
+                        if (this.shotQueued && !this.isMultiShotting) {
                             this.shotQueued = false; // Clear the queue
-                            this.attemptToFire();
+                            this.startCannonCharge(); // Fire the queued shot directly
+                        } else if (this.isFiring && !this.isMultiShotting) {
+                            this.attemptToFire(); // Continue hold-to-fire
                         }
                     }
                 }
@@ -1392,13 +1399,15 @@
                     }
                 });
 
-                // Set fade opacity based on max threat level (0 to 50% opacity)
+                // Set fade opacity based on max threat level (0 to 80% opacity)
                 const fadeOpacity = maxThreatLevel * 0.8;
 
                 // Clear and redraw the graphics with new alpha
                 this.gameOverFadeOverlay.clear();
-                this.gameOverFadeOverlay.fillStyle(0x000000, fadeOpacity);
-                this.gameOverFadeOverlay.fillRect(0, 0, this.gameWidth, this.gameHeight);
+                if (fadeOpacity > 0) {
+                    this.gameOverFadeOverlay.fillStyle(0x000000, fadeOpacity);
+                    this.gameOverFadeOverlay.fillRect(0, 0, this.gameWidth, this.gameHeight);
+                }
             }
 
             cleanupHead(head) {
