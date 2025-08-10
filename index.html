@@ -41,7 +41,7 @@
                 // Game configuration
                 this.CANNON_SIZE = 96;
                 this.CANNON_CHARGE_TIME = 500;
-                this.CANNON_COOLDOWN_TIME = 1000;
+                this.CANNON_COOLDOWN_TIME = 1000; // Back to 1 second
                 this.HEAD_SIZE = 128;
                 this.HEDLE_SIZE = 160;
                 this.EGG_SIZE = 80; // Starting egg size
@@ -53,9 +53,9 @@
                 this.EGG_GROWTH_TIME = 4000; // 4 seconds to hatch
                 this.MIN_HEAD_DAMAGE_SPEED = 50; // Minimum speed to damage hedles
                 this.BAT_SPEED = 200; // Speed of bat flying across screen
-                this.SPELL_SLOT_SIZE = 80; // Size of spell UI slots
-                this.FIRE_EXPLOSION_RADIUS = 200; // Radius for fire spell
-                this.WATER_LINE_LENGTH = 600; // Length of water spell line
+                this.SPELL_SLOT_SIZE = 120; // Size of spell UI slots (50% bigger)
+                this.FIRE_EXPLOSION_RADIUS = 250; // Radius for fire spell (25% bigger)
+                this.WATER_LINE_LENGTH = 3200; // Length of water spell line (much longer!)
                 this.MULTI_SHOT_COUNT = 8; // Number of shots for multi spell
                 this.MULTI_SHOT_DELAY = 250; // Delay between multi shots
 
@@ -80,18 +80,32 @@
                 this.lastPointerPosition = { x: 450, y: 400 };
                 this.currentSpawnDelay = 4000; // Start with 4 second delay
                 this.spawnSpeedMultiplier = 0.9; // Make 10% faster each time
-                this.isFiring = false; // Reset firing state
                 this.currentBatDelay = 8000; // First bat after 8 seconds
                 this.batDelayIncrement = 2000; // Add 2 seconds each time
                 this.spellSlots = [null, null, null, null]; // 4 spell slots
                 this.selectedSpell = null; // Currently selected spell
                 this.isMultiShotting = false; // Track multi-shot state
+                this.isFiring = false; // Track firing state
+                this.isInteractingWithUI = false; // Track UI interactions
+                this.gameOverFadeOverlay = null; // Screen fade overlay
             }
 
             preload() {
                 // Load cannon assets
                 this.load.image('cannon', 'assets/cannon.png');
                 this.load.audio('cannon_shot', 'assets/cannon_shot.mp3');
+                this.load.audio('cannon_ready', 'assets/cannon_ready.mp3');
+
+                // Load background
+                this.load.image('background', 'assets/background.png');
+
+                // Load sound effects
+                this.load.audio('oww_1', 'assets/oww_1.mp3');
+                this.load.audio('oww_2', 'assets/oww_2.mp3');
+                this.load.audio('oww_3', 'assets/oww_3.mp3');
+                this.load.audio('oww_4', 'assets/oww_4.mp3');
+                this.load.audio('pickup_spell', 'assets/pickup_spell.mp3');
+                this.load.audio('ball_bounce', 'assets/ball_bounce.mp3');
 
                 // Load egg sprite
                 this.load.image('egg', 'assets/item_egg.png');
@@ -128,7 +142,11 @@
                     // Create placeholders for missing assets
                     const graphics = this.make.graphics({ x: 0, y: 0, add: false });
 
-                    if (file.key === 'egg') {
+                    if (file.key === 'background') {
+                        graphics.fillStyle(0x2c3e50, 1);
+                        graphics.fillRect(0, 0, 512, 512);
+                        graphics.generateTexture('background', 512, 512);
+                    } else if (file.key === 'egg') {
                         graphics.fillStyle(0xffffff, 1);
                         graphics.fillEllipse(32, 40, 64, 80);
                         graphics.generateTexture('egg', 64, 80);
@@ -170,8 +188,29 @@
             }
 
             create() {
-                // Set background
+                // Create golden dot texture for particles
+                const graphics = this.make.graphics({ x: 0, y: 0, add: false });
+                graphics.fillStyle(0xFFD700, 1);
+                graphics.fillCircle(4, 4, 4);
+                graphics.generateTexture('golden_dot', 8, 8);
+                graphics.destroy();
+
+                // Set background with tiled texture
                 this.cameras.main.setBackgroundColor(0x2c3e50);
+
+                // Tile the background texture
+                const bgWidth = 512;
+                const bgHeight = 512;
+                const tilesX = Math.ceil(this.gameWidth / bgWidth);
+                const tilesY = Math.ceil(this.gameHeight / bgHeight);
+
+                for (let x = 0; x < tilesX; x++) {
+                    for (let y = 0; y < tilesY; y++) {
+                        const bg = this.add.image(x * bgWidth, y * bgHeight, 'background');
+                        bg.setOrigin(0, 0);
+                        bg.setDepth(-10); // Put in background
+                    }
+                }
 
                 // Set world bounds for physics
                 this.physics.world.setBounds(0, 0, this.gameWidth, this.gameHeight);
@@ -190,10 +229,21 @@
                 // Set up collision detection with condition check
                 this.physics.add.overlap(this.heads, this.hedles, this.hitHedle, this.canHitHedle, this);
 
-                // Add head-to-head collisions for billiard physics
-                this.physics.add.collider(this.heads, this.heads, this.headCollision, null, this);
+                // Add head-to-head collisions for billiard physics, but exclude special heads
+                this.physics.add.collider(this.heads, this.heads, this.headCollision, this.canHeadsCollide, this);
 
-                // Input handling
+                // Create screen fade overlay for tension effect
+                this.gameOverFadeOverlay = this.add.rectangle(
+                    this.gameWidth / 2,
+                    this.gameHeight / 2,
+                    this.gameWidth,
+                    this.gameHeight,
+                    0x000000,
+                    0
+                );
+                this.gameOverFadeOverlay.setDepth(100); // Above everything else
+
+                // Input handling - HOLD TO FIRE SYSTEM
                 this.input.removeAllListeners(); // Clear any existing listeners
 
                 this.input.on('pointermove', (pointer) => {
@@ -204,11 +254,16 @@
                 this.input.on('pointerdown', (pointer) => {
                     this.lastPointerPosition = { x: pointer.x, y: pointer.y };
                     this.updateCannonAngle();
-                    this.startFiring();
+                    // Only start firing if not interacting with UI
+                    if (!this.isInteractingWithUI) {
+                        this.startFiring();
+                    }
+                    // Reset UI interaction flag
+                    this.isInteractingWithUI = false;
                 });
 
                 this.input.on('pointerup', () => {
-                    this.stopFiring();
+                    this.stopFiring(); // Stop firing when released
                 });
 
                 // Keyboard support
@@ -219,9 +274,6 @@
                 this.spaceKey.on('up', () => {
                     this.stopFiring();
                 });
-
-                // Track firing state
-                this.isFiring = false;
 
                 // Score text
                 this.scoreText = this.add.text(this.gameWidth / 2, 50, 'Score: 0', {
@@ -240,11 +292,29 @@
                 this.scheduleBat();
             }
 
+            createReadyParticles() {
+                // Create golden particle system around cannon
+                this.cannonReadyParticles = this.add.particles(0, 0, 'golden_dot', {
+                    scale: { start: 0.8, end: 0.3 },
+                    alpha: { start: 1.0, end: 0.2 },
+                    speed: { min: 30, max: 60 },
+                    lifespan: 2000,
+                    frequency: 150,
+                    quantity: 2,
+                    emitZone: {
+                        type: 'edge',
+                        source: new Phaser.Geom.Circle(0, 0, 70),
+                        quantity: 2
+                    }
+                });
+                this.cannonReadyParticles.setVisible(false);
+            }
+
             createSpellInterface() {
                 this.spellIcons = [];
                 const slotY = this.gameHeight - 100;
-                const leftSlotX = [this.gameWidth / 2 - 200, this.gameWidth / 2 - 120];
-                const rightSlotX = [this.gameWidth / 2 + 120, this.gameWidth / 2 + 200];
+                const leftSlotX = [this.gameWidth / 2 - 280, this.gameWidth / 2 - 160]; // Spread wider
+                const rightSlotX = [this.gameWidth / 2 + 160, this.gameWidth / 2 + 280]; // Spread wider
 
                 // Create 4 spell slots
                 for (let i = 0; i < 4; i++) {
@@ -271,6 +341,7 @@
                     // Handle clicking on spell slot
                     icon.on('pointerdown', () => {
                         if (!this.gameOver && !this.isMultiShotting) {
+                            this.isInteractingWithUI = true; // Mark UI interaction
                             this.selectSpell(i);
                         }
                     });
@@ -281,6 +352,9 @@
 
             selectSpell(index) {
                 if (!this.spellSlots[index]) return;
+
+                // Stop firing when selecting a spell
+                this.stopFiring();
 
                 // Deselect all
                 this.spellIcons.forEach(icon => {
@@ -347,17 +421,32 @@
 
                 // Random direction
                 const goingRight = Phaser.Math.Between(0, 1) === 1;
-                const startX = goingRight ? -100 : this.gameWidth + 100;
-                const endX = goingRight ? this.gameWidth + 100 : -100;
+                const startX = goingRight ? -150 : this.gameWidth + 150; // Adjust for bigger bat
+                const endX = goingRight ? this.gameWidth + 150 : -150;
 
                 // Create bat
                 const bat = this.add.sprite(startX, batY, 'bat_1');
-                bat.setDisplaySize(120, 120);
+                bat.setDisplaySize(180, 180); // 50% bigger
 
                 // Flip sprite if going left
                 if (!goingRight) {
                     bat.setFlipX(true);
                 }
+
+                // Add golden particles around bat
+                const batParticles = this.add.particles(startX, batY, 'golden_dot', {
+                    scale: { start: 0.6, end: 0.2 },
+                    alpha: { start: 0.8, end: 0.1 },
+                    speed: { min: 20, max: 40 },
+                    lifespan: 1500,
+                    frequency: 100,
+                    quantity: 1,
+                    emitZone: {
+                        type: 'edge',
+                        source: new Phaser.Geom.Circle(0, 0, 50),
+                        quantity: 1
+                    }
+                });
 
                 // Animate bat wings
                 let batFrame = 0;
@@ -374,14 +463,20 @@
                 // Add random book
                 const bookTypes = ['fire', 'water', 'storm', 'multi'];
                 const bookType = Phaser.Utils.Array.GetRandom(bookTypes);
-                const book = this.add.image(startX, batY + 40, `tome_${bookType}`);
-                book.setDisplaySize(60, 60);
+                const book = this.add.image(startX, batY + 60, `tome_${bookType}`); // Adjust offset for bigger bat
+                book.setDisplaySize(90, 90); // 50% bigger
                 book.setInteractive();
                 book.bookType = bookType;
 
                 // Handle clicking on book
                 book.on('pointerdown', () => {
+                    this.isInteractingWithUI = true; // Mark UI interaction
                     if (this.addSpellToSlot(bookType)) {
+                        // Play pickup sound
+                        if (this.cache.audio.exists('pickup_spell')) {
+                            this.sound.play('pickup_spell');
+                        }
+
                         book.destroy();
                         // Visual feedback
                         const collected = this.add.text(book.x, book.y, `+${bookType.toUpperCase()}`, {
@@ -401,13 +496,53 @@
 
                 // Move bat across screen
                 this.tweens.add({
-                    targets: [bat, book],
+                    targets: [bat, book, batParticles],
                     x: endX,
                     duration: this.gameWidth / this.BAT_SPEED * 1000,
                     onComplete: () => {
                         if (bat.animTimer) bat.animTimer.destroy();
                         bat.destroy();
                         if (book.active) book.destroy();
+                        batParticles.destroy();
+                    }
+                });
+            }
+
+            tryToFire() {
+                if (this.gameOver || this.isMultiShotting) return;
+
+                if (!this.cannonCharging && !this.cannonOnCooldown) {
+                    this.startCannonCharge();
+                }
+            }
+
+            startFiring() {
+                if (this.gameOver) return;
+                this.isFiring = true;
+                this.attemptToFire();
+            }
+
+            stopFiring() {
+                this.isFiring = false;
+            }
+
+            attemptToFire() {
+                if (!this.isFiring || this.gameOver || this.isMultiShotting) return;
+
+                if (!this.cannonCharging && !this.cannonOnCooldown) {
+                    this.startCannonCharge();
+                }
+            }
+
+            startCannonCharge() {
+                if (this.isMultiShotting) return;
+
+                this.cannonCharging = true;
+                this.cannonChargeStart = this.time.now;
+
+                this.chargeTimer = this.time.delayedCall(this.CANNON_CHARGE_TIME, () => {
+                    if (this.cannonCharging && !this.gameOver) {
+                        this.fireCannon();
                     }
                 });
             }
@@ -438,13 +573,18 @@
                 this.cannonOnCooldown = true;
                 this.cannonCooldownStart = this.time.now;
 
+                // Calculate head spawn position based on cannon angle
+                const cannonLength = this.CANNON_SIZE;
+                const spawnOffsetX = Math.cos(this.cannonAngle) * (cannonLength * 0.8);
+                const spawnOffsetY = Math.sin(this.cannonAngle) * (cannonLength * 0.8);
+
                 // Create head projectile
                 const headNum = Phaser.Math.Between(1, this.HEAD_COUNT);
                 const headId = headNum.toString().padStart(4, '0');
 
                 const head = this.physics.add.sprite(
-                    this.cannon.x,
-                    this.cannon.y - 50,
+                    this.cannon.x + spawnOffsetX,
+                    this.cannon.y + spawnOffsetY,
                     `head_${headId}`
                 );
 
@@ -453,6 +593,7 @@
 
                 // Configure the sprite
                 head.setDisplaySize(this.HEAD_SIZE, this.HEAD_SIZE);
+                head.setOrigin(0.5, 0.25); // Move rotation point up to nose area (center of actual head)
 
                 // Set physics body
                 head.body.setSize(18, 18);
@@ -467,6 +608,9 @@
                         head.isPiercing = true;
                         // Add storm trail effect
                         this.addStormTrail(head);
+                    } else {
+                        // Enable bouncing for non-storm spells
+                        head.body.setBounce(1, 1);
                     }
 
                     // Add spell visual to head
@@ -475,12 +619,11 @@
                         spellVisual.setDisplaySize(80, 80);
                         head.spellVisual = spellVisual;
                     }
-                }
-
-                // Enable bouncing for billiard physics (except storm)
-                if (!head.isPiercing) {
+                } else {
+                    // Enable bouncing for normal shots
                     head.body.setBounce(1, 1);
                 }
+
                 head.body.setDrag(0);
 
                 // Calculate velocity
@@ -498,9 +641,7 @@
                 const shootNext = () => {
                     if (shotCount >= this.MULTI_SHOT_COUNT || this.gameOver) {
                         this.isMultiShotting = false;
-                        // Start cooldown after multi-shot completes
-                        this.cannonOnCooldown = true;
-                        this.cannonCooldownStart = this.time.now;
+                        // No additional cooldown - cannon is ready to fire again immediately
                         return;
                     }
 
@@ -509,20 +650,26 @@
                         this.sound.play('cannon_shot');
                     }
 
+                    // Calculate head spawn position based on cannon angle
+                    const cannonLength = this.CANNON_SIZE;
+                    const spawnOffsetX = Math.cos(this.cannonAngle) * (cannonLength * 0.8);
+                    const spawnOffsetY = Math.sin(this.cannonAngle) * (cannonLength * 0.8);
+
                     // Create head
                     const headNum = Phaser.Math.Between(1, this.HEAD_COUNT);
                     const headId = headNum.toString().padStart(4, '0');
 
                     const head = this.physics.add.sprite(
-                        this.cannon.x,
-                        this.cannon.y - 50,
+                        this.cannon.x + spawnOffsetX,
+                        this.cannon.y + spawnOffsetY,
                         `head_${headId}`
                     );
 
                     this.heads.add(head);
                     head.setDisplaySize(this.HEAD_SIZE, this.HEAD_SIZE);
+                    head.setOrigin(0.5, 0.4); // Move rotation point up to nose area (center of actual head)
                     head.body.setSize(18, 18);
-                    head.body.setOffset(16, 4);
+                    head.body.setOffset(16, 4); // Keep original physics body position
                     head.body.setBounce(1, 1);
                     head.body.setDrag(0);
 
@@ -617,8 +764,8 @@
                 // Random angle for water line
                 const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
 
-                // Create water line visual
-                const numSegments = 20;
+                // Create water line visual with sequential wave animation
+                const numSegments = 40; // More segments for longer line
                 for (let i = 0; i < numSegments; i++) {
                     const segmentDist = (i / numSegments) * this.WATER_LINE_LENGTH - this.WATER_LINE_LENGTH / 2;
                     const waterX = x + Math.cos(angle) * segmentDist;
@@ -628,10 +775,37 @@
                     water.setDisplaySize(60, 60);
                     water.setRotation(angle);
 
+                    // Sequential wave animation - each sprite starts 50ms after the previous
+                    const waveDelay = i * 50; // 50ms stagger between each sprite
+                    const waveAmplitude = 25;
+                    const waveFrequency = 800;
+
+                    // Start wave animation after delay
+                    this.time.delayedCall(waveDelay, () => {
+                        if (water.active) {
+                            const perpAngle = angle + Math.PI / 2;
+                            const startX = water.x;
+                            const startY = water.y;
+
+                            // Create wave motion
+                            this.tweens.add({
+                                targets: water,
+                                x: startX + Math.cos(perpAngle) * waveAmplitude,
+                                y: startY + Math.sin(perpAngle) * waveAmplitude,
+                                duration: waveFrequency / 2,
+                                yoyo: true,
+                                repeat: 2, // More wave cycles
+                                ease: 'Sine.easeInOut'
+                            });
+                        }
+                    });
+
+                    // Fade out over longer time to see wave effect
                     this.tweens.add({
                         targets: water,
                         alpha: 0,
-                        duration: 1000,
+                        duration: 2000,
+                        delay: waveDelay,
                         onComplete: () => water.destroy()
                     });
                 }
@@ -692,6 +866,13 @@
                 if (hedle.isDying) return;
 
                 hedle.isDying = true;
+
+                // Play random oww sound
+                const owwSounds = ['oww_1', 'oww_2', 'oww_3', 'oww_4'];
+                const randomOww = Phaser.Utils.Array.GetRandom(owwSounds);
+                if (this.cache.audio.exists(randomOww)) {
+                    this.sound.play(randomOww);
+                }
 
                 // Clean up timers
                 if (hedle.walkTimer) hedle.walkTimer.destroy();
@@ -840,83 +1021,6 @@
                 this.cannon.setRotation(this.cannonAngle + Math.PI / 2);
             }
 
-            startFiring() {
-                if (this.gameOver) return;
-                this.isFiring = true;
-                this.attemptToFire();
-            }
-
-            stopFiring() {
-                this.isFiring = false;
-            }
-
-            attemptToFire() {
-                if (!this.isFiring || this.gameOver || this.isMultiShotting) return;
-
-                if (!this.cannonCharging && !this.cannonOnCooldown) {
-                    this.startCannonCharge();
-                }
-            }
-
-            startCannonCharge() {
-                if (this.isMultiShotting) return; // Don't start charging during multi-shot
-
-                this.cannonCharging = true;
-                this.cannonChargeStart = this.time.now;
-
-                this.chargeTimer = this.time.delayedCall(this.CANNON_CHARGE_TIME, () => {
-                    if (this.cannonCharging && !this.gameOver) {
-                        this.fireCannon();
-                    }
-                });
-            }
-
-            fireCannon() {
-                // Play sound
-                if (this.cache.audio.exists('cannon_shot')) {
-                    this.sound.play('cannon_shot');
-                }
-
-                // Reset charging
-                this.cannonCharging = false;
-                this.cannon.setTint(0xffffff);
-
-                // Start cooldown
-                this.cannonOnCooldown = true;
-                this.cannonCooldownStart = this.time.now;
-
-                // Create head projectile
-                const headNum = Phaser.Math.Between(1, this.HEAD_COUNT);
-                const headId = headNum.toString().padStart(4, '0');
-
-                const head = this.physics.add.sprite(
-                    this.cannon.x,
-                    this.cannon.y - 50,
-                    `head_${headId}`
-                );
-
-                // Add to group immediately
-                this.heads.add(head);
-
-                // Configure the sprite
-                head.setDisplaySize(this.HEAD_SIZE, this.HEAD_SIZE);
-
-                // Set physics body
-                head.body.setSize(18, 18);
-                head.body.setOffset(16, 4);
-
-                // Enable bouncing for billiard physics
-                head.body.setBounce(1, 1); // Perfect elastic collision
-                head.body.setDrag(0); // No drag
-
-                // Calculate velocity
-                const velocityX = Math.cos(this.cannonAngle) * this.HEAD_SPEED;
-                const velocityY = Math.sin(this.cannonAngle) * this.HEAD_SPEED;
-
-                // Set velocity
-                head.body.velocity.set(velocityX, velocityY);
-            }
-
             createBobAnimation(hedle) {
                 const currentScaleX = hedle.scaleX;
                 const currentScaleY = hedle.scaleY;
@@ -1015,6 +1119,13 @@
 
                 hedle.isDying = true;
 
+                // Play random oww sound
+                const owwSounds = ['oww_1', 'oww_2', 'oww_3', 'oww_4'];
+                const randomOww = Phaser.Utils.Array.GetRandom(owwSounds);
+                if (this.cache.audio.exists(randomOww)) {
+                    this.sound.play(randomOww);
+                }
+
                 // Clean up timers
                 if (hedle.walkTimer) hedle.walkTimer.destroy();
                 if (hedle.bobTween) hedle.bobTween.destroy();
@@ -1063,8 +1174,21 @@
             }
 
             headCollision(head1, head2) {
+                // Play ball bounce sound
+                if (this.cache.audio.exists('ball_bounce')) {
+                    this.sound.play('ball_bounce');
+                }
                 // Billiard-style collision already handled by Phaser's physics
                 // No damping - keep full velocity
+            }
+
+            canHeadsCollide(head1, head2) {
+                // Don't allow special heads to collide with normal heads
+                const head1HasSpell = head1.spellType || head1.multiVisual;
+                const head2HasSpell = head2.spellType || head2.multiVisual;
+
+                // If either head has a spell, don't collide
+                return !head1HasSpell && !head2HasSpell;
             }
 
             checkGameOver() {
@@ -1079,7 +1203,14 @@
                 if (this.gameOver) return; // Prevent multiple calls
 
                 this.gameOver = true;
-                this.stopFiring(); // Stop any continuous firing
+                this.stopFiring(); // Stop manual firing
+
+                // Fade screen to black
+                this.tweens.add({
+                    targets: this.gameOverFadeOverlay,
+                    alpha: 1.0, // Full black
+                    duration: 1000
+                });
 
                 // Clean up all timers
                 if (this.eggSpawnTimer) this.eggSpawnTimer.destroy();
@@ -1154,26 +1285,26 @@
             update(time, delta) {
                 if (this.gameOver) return;
 
-                // Update cooldown
+                // Update cooldown and manual firing
                 if (this.cannonOnCooldown) {
                     const elapsed = this.time.now - this.cannonCooldownStart;
                     if (elapsed >= this.CANNON_COOLDOWN_TIME) {
                         this.cannonOnCooldown = false;
-                        // Try to fire again if still holding input (unless multi-shotting)
+                        // Try to fire again if still holding input
                         if (this.isFiring && !this.isMultiShotting) {
                             this.attemptToFire();
                         }
                     }
                 }
 
-                // Cannon charging animation
+                // Cannon charging animation - restored!
                 if (this.cannonCharging) {
                     const chargeProgress = (this.time.now - this.cannonChargeStart) / this.CANNON_CHARGE_TIME;
                     const shakeIntensity = Math.min(chargeProgress * 10, 10);
 
                     this.cannon.x = this.gameWidth / 2 + (Math.random() - 0.5) * shakeIntensity;
                     this.cannon.y = this.gameHeight - 100 + (Math.random() - 0.5) * shakeIntensity;
-                    this.cannon.setTint(0xff4444);
+                    this.cannon.setTint(0xff4444); // Red charging tint
                 } else {
                     this.cannon.x = this.gameWidth / 2;
                     this.cannon.y = this.gameHeight - 100;
@@ -1195,7 +1326,7 @@
                     }
                 }
 
-                // Update spell visuals to follow heads
+                // Update spell visuals to follow heads and rotate heads based on velocity
                 this.heads.children.entries.forEach(head => {
                     if (head.spellVisual && head.spellVisual.active) {
                         head.spellVisual.x = head.x;
@@ -1205,7 +1336,17 @@
                         head.multiVisual.x = head.x;
                         head.multiVisual.y = head.y;
                     }
+
+                    // Rotate head based on velocity around center
+                    if (head.body) {
+                        const speed = Math.sqrt(head.body.velocity.x ** 2 + head.body.velocity.y ** 2);
+                        const rotationSpeed = speed * 0.008; // Adjust rotation multiplier
+                        head.rotation += rotationSpeed * delta * 0.001;
+                    }
                 });
+
+                // Screen fade effect based on hedle proximity to bottom
+                this.updateScreenFade();
 
                 // Keep hedles within bounds
                 this.hedles.children.entries.forEach(hedle => {
@@ -1237,6 +1378,30 @@
                 this.checkGameOver();
             }
 
+            updateScreenFade() {
+                if (!this.gameOverFadeOverlay) return;
+
+                let maxThreatLevel = 0;
+
+                // Check all hedles for proximity to bottom
+                this.hedles.children.entries.forEach(hedle => {
+                    if (!hedle.isDying) {
+                        const threatZoneStart = this.gameHeight * 0.8; // Lower 20% of screen
+                        const gameOverZone = this.gameHeight - 150; // Game over line
+
+                        if (hedle.y > threatZoneStart) {
+                            // Calculate threat level (0 to 1)
+                            const threatLevel = Math.min((hedle.y - threatZoneStart) / (gameOverZone - threatZoneStart), 1);
+                            maxThreatLevel = Math.max(maxThreatLevel, threatLevel);
+                        }
+                    }
+                });
+
+                // Set fade opacity based on max threat level (0 to 50% opacity)
+                const fadeOpacity = maxThreatLevel * 0.5;
+                this.gameOverFadeOverlay.setAlpha(fadeOpacity);
+            }
+
             cleanupHead(head) {
                 if (head.trailTimer) head.trailTimer.destroy();
                 if (head.spellVisual && head.spellVisual.active) head.spellVisual.destroy();
@@ -1254,7 +1419,7 @@
                 default: 'arcade',
                 arcade: {
                     gravity: { y: 0 },
-                    debug: true
+                    debug: true // Enable debug mode to see collision boxes
                 }
             },
             scene: HEDLES,
