@@ -308,9 +308,12 @@
                 this.textBackground = this.add.image(centerX, textBgY, 'text_background');
                 this.textBackground.setDisplaySize(textBgWidth, textBgHeight);
 
-                // Create text object for story - PROPER FONT USAGE
-                const textMarginX = textBgWidth * 0.2; // 20% margin from left
-                const textMarginY = textBgHeight * 0.2; // 20% margin from top
+                // Create text object for story - UPDATED MARGINS
+                const textMarginX = textBgWidth * 0.1; // 10% margin from left (FIXED)
+                const textMarginY = textBgHeight * 0.18; // 18% margin from top (FIXED)
+
+                // Store the wrap width for later use
+                this.textWrapWidth = textBgWidth - (textMarginX * 2);
 
                 // Use properly quoted font name as required by Phaser
                 const fontFamily = this.fontLoaded ? '"Press Start 2P"' : 'monospace';
@@ -327,7 +330,8 @@
                         fontSize: fontSize,
                         fill: '#ffffff',
                         align: 'left',
-                        wordWrap: { width: textBgWidth - (textMarginX * 2), useAdvancedWrap: true },
+                        // Start with word wrap enabled for initial setup
+                        wordWrap: { width: this.textWrapWidth, useAdvancedWrap: true },
                         lineSpacing: 8
                     }
                 );
@@ -422,18 +426,65 @@
                 this.continuePrompt.setVisible(false);
 
                 const fullText = this.storyLines[this.currentLineIndex];
+
+                // MANUAL WORD WRAPPING CALCULATION
+                const words = fullText.split(' ');
+                const lines = [];
+                let currentLine = '';
+
+                // Create a temporary text object to measure word widths
+                const measureText = this.add.text(0, 0, '', {
+                    fontFamily: this.storyText.style.fontFamily,
+                    fontSize: this.storyText.style.fontSize
+                });
+
+                for (let i = 0; i < words.length; i++) {
+                    const word = words[i];
+                    const testLine = currentLine ? `${currentLine} ${word}` : word;
+
+                    // Measure the width of this test line
+                    measureText.setText(testLine);
+                    const lineWidth = measureText.width;
+
+                    if (lineWidth <= this.textWrapWidth || currentLine === '') {
+                        // Word fits on current line, OR this is the first word on a line (force it even if too long)
+                        currentLine = testLine;
+                    } else {
+                        // Word doesn't fit, start new line
+                        lines.push(currentLine);
+                        currentLine = word;
+                    }
+                }
+
+                // Add the last line if it exists
+                if (currentLine) {
+                    lines.push(currentLine);
+                }
+
+                measureText.destroy(); // Clean up
+
+                // Join lines with newline characters
+                const wrappedText = lines.join('\n');
+
+                // STORE THE WRAPPED TEXT for use in completeCurrentLine()
+                this.currentWrappedText = wrappedText;
+
+                // DISABLE PHASER'S WORD WRAPPING since we're handling it manually
+                this.storyText.setWordWrapWidth(0);
+
+                // Now type the pre-wrapped text character by character
                 let currentText = '';
                 let charIndex = 0;
 
                 this.storyText.setText('');
 
                 const typeNextChar = () => {
-                    if (charIndex < fullText.length && this.isTyping) {
-                        currentText += fullText[charIndex];
+                    if (charIndex < wrappedText.length && this.isTyping) {
+                        currentText += wrappedText[charIndex];
                         this.storyText.setText(currentText);
 
-                        // Play typewriter sound for visible characters (not spaces)
-                        if (fullText[charIndex] !== ' ' && this.typewriterSounds.length > 0) {
+                        // Play typewriter sound for visible characters (not spaces or newlines)
+                        if (wrappedText[charIndex] !== ' ' && wrappedText[charIndex] !== '\n' && this.typewriterSounds.length > 0) {
                             const randomSound = Phaser.Utils.Array.GetRandom(this.typewriterSounds);
                             this.sound.play(randomSound, { volume: 0.3 });
                         }
@@ -451,7 +502,8 @@
             completeCurrentLine() {
                 this.isTyping = false;
                 this.canAdvance = true;
-                this.storyText.setText(this.storyLines[this.currentLineIndex]);
+                // Use the pre-wrapped text instead of the original text
+                this.storyText.setText(this.currentWrappedText);
                 this.continuePrompt.setVisible(true);
             }
         }
