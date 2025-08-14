@@ -72,10 +72,10 @@
                     } else if (file.key.startsWith('click_story') || file.key.startsWith('click_play')) {
                         const isGolden = file.key.includes('2');
                         graphics.fillStyle(0x444444, 1);
-                        graphics.fillRect(0, 0, 200, 60);
+                        graphics.fillRect(0, 0, 512, 256);
                         graphics.fillStyle(isGolden ? 0xFFD700 : 0xffffff, 1);
-                        graphics.fillRect(10, 20, 180, 20);
-                        graphics.generateTexture(file.key, 200, 60);
+                        graphics.fillRect(20, 50, 472, 156);
+                        graphics.generateTexture(file.key, 512, 256);
                     }
 
                     graphics.destroy();
@@ -103,9 +103,9 @@
                 this.cover = this.add.image(centerX, bookY, 'cover_hedles');
                 this.cover.setDisplaySize(this.gameWidth, scaledBookHeight);
 
-                // Story button (in top area)
+                // Story button (in top area) - 512x256 ratio
                 this.storyButton = this.add.image(centerX, storyButtonY, 'click_story');
-                this.storyButton.setDisplaySize(200, 60);
+                this.storyButton.setDisplaySize(256, 128);
                 this.storyButton.setInteractive();
                 this.storyButton.on('pointerover', () => {
                     this.storyButton.setTint(0xcccccc);
@@ -117,9 +117,9 @@
                     this.buttonPress(this.storyButton, 'click_story2', 'StoryScreen');
                 });
 
-                // Play button (in bottom area)
+                // Play button (in bottom area) - 512x256 ratio
                 this.playButton = this.add.image(centerX, playButtonY, 'click_play');
-                this.playButton.setDisplaySize(200, 60);
+                this.playButton.setDisplaySize(256, 128);
                 this.playButton.setInteractive();
                 this.playButton.on('pointerover', () => {
                     this.playButton.setTint(0xcccccc);
@@ -216,10 +216,10 @@
                     } else if (file.key.startsWith('click_story') || file.key.startsWith('click_play')) {
                         const isGolden = file.key.includes('2');
                         graphics.fillStyle(0x444444, 1);
-                        graphics.fillRect(0, 0, 200, 60);
+                        graphics.fillRect(0, 0, 512, 256);
                         graphics.fillStyle(isGolden ? 0xFFD700 : 0xffffff, 1);
-                        graphics.fillRect(10, 20, 180, 20);
-                        graphics.generateTexture(file.key, 200, 60);
+                        graphics.fillRect(20, 50, 472, 156);
+                        graphics.generateTexture(file.key, 512, 256);
                     }
 
                     graphics.destroy();
@@ -243,9 +243,9 @@
                 this.cover = this.add.image(centerX, bookY, 'cover_secret');
                 this.cover.setDisplaySize(this.gameWidth, scaledBookHeight);
 
-                // Story button (stays visible in story mode)
+                // Story button (stays visible in story mode) - 512x256 ratio
                 this.storyButton = this.add.image(centerX, storyButtonY, 'click_story');
-                this.storyButton.setDisplaySize(200, 60);
+                this.storyButton.setDisplaySize(256, 128);
                 this.storyButton.setInteractive();
                 this.storyButton.on('pointerover', () => {
                     this.storyButton.setTint(0xcccccc);
@@ -257,9 +257,9 @@
                     this.buttonPress(this.storyButton, 'click_story2', 'StoryScreen');
                 });
 
-                // Play button (stays visible in story mode)
+                // Play button (stays visible in story mode) - 512x256 ratio
                 this.playButton = this.add.image(centerX, playButtonY, 'click_play');
-                this.playButton.setDisplaySize(200, 60);
+                this.playButton.setDisplaySize(256, 128);
                 this.playButton.setInteractive();
                 this.playButton.on('pointerover', () => {
                     this.playButton.setTint(0xcccccc);
@@ -280,21 +280,30 @@
                 this.textBackground = this.add.image(centerX, textBgY, 'text_background');
                 this.textBackground.setDisplaySize(textBgWidth, textBgHeight);
 
-                // Create text object for story (64px font - 2x larger, left-aligned)
-                this.storyText = this.add.text(centerX - (textBgWidth / 2) + 20, textBgY - (textBgHeight / 2) + 20, '', {
-                    fontFamily: 'Press Start 2P',
-                    fontSize: '64px', // 2x larger as requested
-                    fill: '#ffffff',
-                    align: 'left',
-                    wordWrap: { width: textBgWidth - 40, useAdvancedWrap: true },
-                    lineSpacing: 20
-                });
+                // Create text object for story (much larger font, left-aligned, 20% margin)
+                const textMarginX = textBgWidth * 0.2; // 20% margin from left
+                const textMarginY = textBgHeight * 0.2; // 20% margin from top
+
+                this.storyText = this.add.text(
+                    centerX - (textBgWidth / 2) + textMarginX,
+                    textBgY - (textBgHeight / 2) + textMarginY,
+                    '',
+                    {
+                        fontFamily: 'Press Start 2P, Arial, monospace', // Fallback chain
+                        fontSize: '18px', // Smaller base size since we'll scale 
+                        fill: '#ffffff',
+                        align: 'left',
+                        wordWrap: { width: (textBgWidth - (textMarginX * 2)) / 1.5, useAdvancedWrap: true }, // Adjust wrap for scale
+                        lineSpacing: 8
+                    }
+                );
                 this.storyText.setOrigin(0, 0); // Left-aligned origin
+                this.storyText.setScale(1.5); // 18px * 1.5 = 27px effective size
 
                 // Add continue prompt (initially hidden)
                 this.continuePrompt = this.add.text(centerX, textBgY + (textBgHeight / 2) + 40, 'Press SPACE or CLICK to continue...', {
                     fontFamily: 'Press Start 2P',
-                    fontSize: '24px',
+                    fontSize: '48px', // Larger continue prompt
                     fill: '#888888',
                     align: 'center'
                 });
@@ -314,8 +323,8 @@
                 // Collect available typewriter sounds
                 this.typewriterSounds = [];
                 for (let i = 1; i <= 3; i++) {
-                    if (this.cache.audio.exists(`typewriter_blip${i}`)) {
-                        this.typewriterSounds.push(`typewriter_blip${i}`);
+                    if (this.cache.audio.exists(`type_blip${i}`)) {
+                        this.typewriterSounds.push(`type_blip${i}`);
                     }
                 }
 
@@ -478,6 +487,9 @@
                 // Load cannon assets
                 this.load.image('cannon', 'assets/cannon.png');
                 this.load.audio('cannon_shot', 'assets/cannon_shot.mp3');
+
+                // Load background music
+                this.load.audio('hedles_music', 'assets/HEDLES.mp3');
 
                 // Load background
                 this.load.image('background', 'assets/background.png');
@@ -668,6 +680,10 @@
                 // ESC to return to start screen
                 this.escapeKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
                 this.escapeKey.on('down', () => {
+                    // Stop background music before switching scenes
+                    if (this.backgroundMusic && this.backgroundMusic.isPlaying) {
+                        this.backgroundMusic.stop();
+                    }
                     this.scene.start('StartScreen');
                 });
 
@@ -686,6 +702,15 @@
 
                 // Schedule first bat
                 this.scheduleBat();
+
+                // Start background music
+                if (this.cache.audio.exists('hedles_music')) {
+                    this.backgroundMusic = this.sound.add('hedles_music', {
+                        loop: true,
+                        volume: 0.5
+                    });
+                    this.backgroundMusic.play();
+                }
             }
 
             createSpellInterface() {
@@ -1681,6 +1706,11 @@
 
                 this.gameOver = true;
                 this.stopFiring(); // Stop manual firing
+
+                // Stop background music
+                if (this.backgroundMusic && this.backgroundMusic.isPlaying) {
+                    this.backgroundMusic.stop();
+                }
 
                 // Don't change screen fade - let it stay at current level (max 0.8 opacity)
 
