@@ -7,13 +7,20 @@
     <title>HEDLES</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.70.0/phaser.min.js"></script>
     <style>
+        @font-face {
+            font-family: 'Press Start 2P';
+            src: url('assets/PressStart2P-Regular.ttf') format('truetype');
+            font-weight: normal;
+            font-style: normal;
+        }
+
         body {
             margin: 0;
             padding: 0;
             width: 100%;
             height: 100vh;
-            background: #1a1a2e;
-            font-family: Arial, sans-serif;
+            background: #000000;
+            font-family: 'Press Start 2P', monospace;
             touch-action: none;
             overflow: hidden;
             position: fixed;
@@ -34,9 +41,383 @@
     <div id="game-container"></div>
 
     <script>
-        class HEDLES extends Phaser.Scene {
+        // Start Screen Scene
+        class StartScreen extends Phaser.Scene {
             constructor() {
-                super({ key: 'HEDLES' });
+                super({ key: 'StartScreen' });
+                this.gameWidth = 900;
+                this.gameHeight = 1600;
+            }
+
+            preload() {
+                // Load start screen assets
+                this.load.image('cover_hedles', 'assets/cover_hedles.jpg');
+                this.load.image('click_story', 'assets/click_story.png');
+                this.load.image('click_story2', 'assets/click_story2.png');
+                this.load.image('click_play', 'assets/click_play.png');
+                this.load.image('click_play2', 'assets/click_play2.png');
+                this.load.audio('tap_button', 'assets/tap_button.mp3');
+
+                // Error handlers for missing assets
+                this.load.on('loaderror', (file) => {
+                    console.warn('Missing start screen asset:', file.key);
+                    const graphics = this.make.graphics({ x: 0, y: 0, add: false });
+
+                    if (file.key === 'cover_hedles') {
+                        graphics.fillStyle(0x2c3e50, 1);
+                        graphics.fillRect(0, 0, 1024, 1220);
+                        graphics.fillStyle(0xffffff, 1);
+                        graphics.fillRect(412, 610, 200, 50);
+                        graphics.generateTexture('cover_hedles', 1024, 1220);
+                    } else if (file.key.startsWith('click_story') || file.key.startsWith('click_play')) {
+                        const isGolden = file.key.includes('2');
+                        graphics.fillStyle(0x444444, 1);
+                        graphics.fillRect(0, 0, 200, 60);
+                        graphics.fillStyle(isGolden ? 0xFFD700 : 0xffffff, 1);
+                        graphics.fillRect(10, 20, 180, 20);
+                        graphics.generateTexture(file.key, 200, 60);
+                    }
+
+                    graphics.destroy();
+                });
+            }
+
+            create() {
+                // Black background
+                this.cameras.main.setBackgroundColor(0x000000);
+
+                // Layout calculations for 900x1600 canvas with 1024x1220 book:
+                // Scale book to fit width: 900/1024 = 0.878
+                // Scaled book: 900 x 1071px 
+                // Remaining space: (1600-1071)/2 = 264px top and bottom
+
+                const centerX = this.gameWidth / 2;
+                const bookScale = this.gameWidth / 1024; // 0.878
+                const scaledBookHeight = 1220 * bookScale; // 1071px
+                const bookY = this.gameHeight / 2; // Center the book
+                const buttonSpacing = (this.gameHeight - scaledBookHeight) / 2; // 264px
+                const storyButtonY = buttonSpacing / 2; // 132px from top
+                const playButtonY = this.gameHeight - (buttonSpacing / 2); // 132px from bottom
+
+                // Add cover image (scaled to fit canvas width)
+                this.cover = this.add.image(centerX, bookY, 'cover_hedles');
+                this.cover.setDisplaySize(this.gameWidth, scaledBookHeight);
+
+                // Story button (in top area)
+                this.storyButton = this.add.image(centerX, storyButtonY, 'click_story');
+                this.storyButton.setDisplaySize(200, 60);
+                this.storyButton.setInteractive();
+                this.storyButton.on('pointerover', () => {
+                    this.storyButton.setTint(0xcccccc);
+                });
+                this.storyButton.on('pointerout', () => {
+                    this.storyButton.setTint(0xffffff);
+                });
+                this.storyButton.on('pointerdown', () => {
+                    this.buttonPress(this.storyButton, 'click_story2', 'StoryScreen');
+                });
+
+                // Play button (in bottom area)
+                this.playButton = this.add.image(centerX, playButtonY, 'click_play');
+                this.playButton.setDisplaySize(200, 60);
+                this.playButton.setInteractive();
+                this.playButton.on('pointerover', () => {
+                    this.playButton.setTint(0xcccccc);
+                });
+                this.playButton.on('pointerout', () => {
+                    this.playButton.setTint(0xffffff);
+                });
+                this.playButton.on('pointerdown', () => {
+                    this.buttonPress(this.playButton, 'click_play2', 'GameScreen');
+                });
+
+                // Keyboard support
+                this.enterKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
+                this.enterKey.on('down', () => {
+                    this.buttonPress(this.playButton, 'click_play2', 'GameScreen');
+                });
+            }
+
+            buttonPress(button, pressedTexture, targetScene) {
+                // Play button sound
+                if (this.cache.audio.exists('tap_button')) {
+                    this.sound.play('tap_button');
+                }
+
+                // Briefly show pressed version
+                const originalTexture = button.texture.key;
+                button.setTexture(pressedTexture);
+
+                this.time.delayedCall(150, () => {
+                    button.setTexture(originalTexture);
+                    this.time.delayedCall(50, () => {
+                        this.scene.start(targetScene);
+                    });
+                });
+            }
+        }
+
+        // Story Screen Scene
+        class StoryScreen extends Phaser.Scene {
+            constructor() {
+                super({ key: 'StoryScreen' });
+                this.gameWidth = 900;
+                this.gameHeight = 1600;
+
+                // Story text (themed around the game)
+                this.storyLines = [
+                    "In the mystical realm of Hedonia, where time flows like honey through ancient trees.",
+                    "The peaceful Hedles lived in harmony, their round forms bobbing gently in meadows.",
+                    "But darkness crept from the void, bringing with it an endless hunger.",
+                    "Only the legendary cannon of the ancients could save them from certain doom.",
+                    "You are the chosen guardian, wielder of heads and master of magical spells.",
+                    "Will you defend the realm and protect the innocent Hedles from extinction?"
+                ];
+
+                this.currentLineIndex = 0;
+                this.isTyping = false;
+                this.canAdvance = false;
+                this.typewriterSpeed = 50; // milliseconds per character
+                this.typewriterSounds = []; // Will store multiple blip sounds
+            }
+
+            preload() {
+                // Load story assets
+                this.load.image('cover_secret', 'assets/cover_secret.jpg');
+                this.load.image('text_background', 'assets/text_background.png');
+                this.load.image('click_story', 'assets/click_story.png');
+                this.load.image('click_story2', 'assets/click_story2.png');
+                this.load.image('click_play', 'assets/click_play.png');
+                this.load.image('click_play2', 'assets/click_play2.png');
+                this.load.audio('tap_button', 'assets/tap_button.mp3');
+
+                // Load typewriter sounds - try multiple variations for randomization
+                this.load.audio('type_blip1', 'assets/type_blip1.mp3');
+                this.load.audio('type_blip2', 'assets/type_blip2.mp3');
+                this.load.audio('type_blip3', 'assets/type_blip3.mp3');
+
+                // Error handlers
+                this.load.on('loaderror', (file) => {
+                    console.warn('Missing story asset:', file.key);
+                    const graphics = this.make.graphics({ x: 0, y: 0, add: false });
+
+                    if (file.key === 'cover_secret') {
+                        graphics.fillStyle(0x1a1a2e, 1);
+                        graphics.fillRect(0, 0, 1024, 1220);
+                        graphics.fillStyle(0x666666, 1);
+                        graphics.fillRect(400, 600, 224, 50);
+                        graphics.generateTexture('cover_secret', 1024, 1220);
+                    } else if (file.key === 'text_background') {
+                        graphics.fillStyle(0x2c1810, 1);
+                        graphics.fillRect(0, 0, 1024, 256);
+                        graphics.lineStyle(4, 0x8b4513);
+                        graphics.strokeRect(8, 8, 1008, 240);
+                        graphics.generateTexture('text_background', 1024, 256);
+                    } else if (file.key.startsWith('click_story') || file.key.startsWith('click_play')) {
+                        const isGolden = file.key.includes('2');
+                        graphics.fillStyle(0x444444, 1);
+                        graphics.fillRect(0, 0, 200, 60);
+                        graphics.fillStyle(isGolden ? 0xFFD700 : 0xffffff, 1);
+                        graphics.fillRect(10, 20, 180, 20);
+                        graphics.generateTexture(file.key, 200, 60);
+                    }
+
+                    graphics.destroy();
+                });
+            }
+
+            create() {
+                // Black background
+                this.cameras.main.setBackgroundColor(0x000000);
+
+                // Same layout calculations as StartScreen
+                const centerX = this.gameWidth / 2;
+                const bookScale = this.gameWidth / 1024; // 0.878
+                const scaledBookHeight = 1220 * bookScale; // 1071px
+                const bookY = this.gameHeight / 2; // Center the book
+                const buttonSpacing = (this.gameHeight - scaledBookHeight) / 2; // 264px
+                const storyButtonY = buttonSpacing / 2; // 132px from top
+                const playButtonY = this.gameHeight - (buttonSpacing / 2); // 132px from bottom
+
+                // Add secret cover image (same scaling)
+                this.cover = this.add.image(centerX, bookY, 'cover_secret');
+                this.cover.setDisplaySize(this.gameWidth, scaledBookHeight);
+
+                // Story button (stays visible in story mode)
+                this.storyButton = this.add.image(centerX, storyButtonY, 'click_story');
+                this.storyButton.setDisplaySize(200, 60);
+                this.storyButton.setInteractive();
+                this.storyButton.on('pointerover', () => {
+                    this.storyButton.setTint(0xcccccc);
+                });
+                this.storyButton.on('pointerout', () => {
+                    this.storyButton.setTint(0xffffff);
+                });
+                this.storyButton.on('pointerdown', () => {
+                    this.buttonPress(this.storyButton, 'click_story2', 'StoryScreen');
+                });
+
+                // Play button (stays visible in story mode)
+                this.playButton = this.add.image(centerX, playButtonY, 'click_play');
+                this.playButton.setDisplaySize(200, 60);
+                this.playButton.setInteractive();
+                this.playButton.on('pointerover', () => {
+                    this.playButton.setTint(0xcccccc);
+                });
+                this.playButton.on('pointerout', () => {
+                    this.playButton.setTint(0xffffff);
+                });
+                this.playButton.on('pointerdown', () => {
+                    this.buttonPress(this.playButton, 'click_play2', 'GameScreen');
+                });
+
+                // Add text background INSIDE the cover area (bottom portion)
+                const textBgScale = bookScale; // Same scale as book
+                const textBgWidth = 1024 * textBgScale; // Scaled width
+                const textBgHeight = 256 * textBgScale; // Scaled height
+                const textBgY = bookY + (scaledBookHeight / 2) - (textBgHeight / 2) - 50; // Inside bottom of book
+
+                this.textBackground = this.add.image(centerX, textBgY, 'text_background');
+                this.textBackground.setDisplaySize(textBgWidth, textBgHeight);
+
+                // Create text object for story (64px font - 2x larger, left-aligned)
+                this.storyText = this.add.text(centerX - (textBgWidth / 2) + 20, textBgY - (textBgHeight / 2) + 20, '', {
+                    fontFamily: 'Press Start 2P',
+                    fontSize: '64px', // 2x larger as requested
+                    fill: '#ffffff',
+                    align: 'left',
+                    wordWrap: { width: textBgWidth - 40, useAdvancedWrap: true },
+                    lineSpacing: 20
+                });
+                this.storyText.setOrigin(0, 0); // Left-aligned origin
+
+                // Add continue prompt (initially hidden)
+                this.continuePrompt = this.add.text(centerX, textBgY + (textBgHeight / 2) + 40, 'Press SPACE or CLICK to continue...', {
+                    fontFamily: 'Press Start 2P',
+                    fontSize: '24px',
+                    fill: '#888888',
+                    align: 'center'
+                });
+                this.continuePrompt.setOrigin(0.5);
+                this.continuePrompt.setVisible(false);
+
+                // Blinking effect for continue prompt
+                this.tweens.add({
+                    targets: this.continuePrompt,
+                    alpha: 0.3,
+                    duration: 800,
+                    yoyo: true,
+                    repeat: -1,
+                    ease: 'Sine.easeInOut'
+                });
+
+                // Collect available typewriter sounds
+                this.typewriterSounds = [];
+                for (let i = 1; i <= 3; i++) {
+                    if (this.cache.audio.exists(`typewriter_blip${i}`)) {
+                        this.typewriterSounds.push(`typewriter_blip${i}`);
+                    }
+                }
+
+                // Input handling
+                this.input.on('pointerdown', () => {
+                    this.handleAdvance();
+                });
+
+                this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+                this.spaceKey.on('down', () => {
+                    this.handleAdvance();
+                });
+
+                this.escapeKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
+                this.escapeKey.on('down', () => {
+                    this.scene.start('StartScreen');
+                });
+
+                // Start the first line
+                this.showNextLine();
+            }
+
+            buttonPress(button, pressedTexture, targetScene) {
+                // Play button sound
+                if (this.cache.audio.exists('tap_button')) {
+                    this.sound.play('tap_button');
+                }
+
+                // Briefly show pressed version
+                const originalTexture = button.texture.key;
+                button.setTexture(pressedTexture);
+
+                this.time.delayedCall(150, () => {
+                    button.setTexture(originalTexture);
+                    this.time.delayedCall(50, () => {
+                        this.scene.start(targetScene);
+                    });
+                });
+            }
+
+            handleAdvance() {
+                if (this.isTyping) {
+                    // Skip to end of current text
+                    this.completeCurrentLine();
+                } else if (this.canAdvance) {
+                    // Go to next line
+                    this.currentLineIndex++;
+                    if (this.currentLineIndex >= this.storyLines.length) {
+                        // Story finished, go to game
+                        this.buttonPress(this.playButton, 'click_play2', 'GameScreen');
+                    } else {
+                        this.showNextLine();
+                    }
+                }
+            }
+
+            showNextLine() {
+                if (this.currentLineIndex >= this.storyLines.length) return;
+
+                this.isTyping = true;
+                this.canAdvance = false;
+                this.continuePrompt.setVisible(false);
+
+                const fullText = this.storyLines[this.currentLineIndex];
+                let currentText = '';
+                let charIndex = 0;
+
+                this.storyText.setText('');
+
+                const typeNextChar = () => {
+                    if (charIndex < fullText.length && this.isTyping) {
+                        currentText += fullText[charIndex];
+                        this.storyText.setText(currentText);
+
+                        // Play typewriter sound for visible characters (not spaces)
+                        if (fullText[charIndex] !== ' ' && this.typewriterSounds.length > 0) {
+                            const randomSound = Phaser.Utils.Array.GetRandom(this.typewriterSounds);
+                            this.sound.play(randomSound, { volume: 0.3 }); // Lower volume so it's not annoying
+                        }
+
+                        charIndex++;
+                        this.time.delayedCall(this.typewriterSpeed, typeNextChar);
+                    } else {
+                        this.completeCurrentLine();
+                    }
+                };
+
+                typeNextChar();
+            }
+
+            completeCurrentLine() {
+                this.isTyping = false;
+                this.canAdvance = true;
+                this.storyText.setText(this.storyLines[this.currentLineIndex]);
+                this.continuePrompt.setVisible(true);
+            }
+        }
+
+        // Game Screen Scene (EXACTLY as before - no changes!)
+        class GameScreen extends Phaser.Scene {
+            constructor() {
+                super({ key: 'GameScreen' });
 
                 // Game configuration
                 this.CANNON_SIZE = 96;
@@ -282,6 +663,12 @@
                 });
                 this.spaceKey.on('up', () => {
                     this.stopFiring();
+                });
+
+                // ESC to return to start screen
+                this.escapeKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
+                this.escapeKey.on('down', () => {
+                    this.scene.start('StartScreen');
                 });
 
                 // Track firing state
@@ -1472,6 +1859,7 @@
             }
         }
 
+        // Game configuration
         const config = {
             type: Phaser.AUTO,
             width: 900,
@@ -1481,10 +1869,10 @@
                 default: 'arcade',
                 arcade: {
                     gravity: { y: 0 },
-                    debug: true // Enable debug mode to see collision boxes
+                    debug: false
                 }
             },
-            scene: HEDLES,
+            scene: [StartScreen, StoryScreen, GameScreen],
             scale: {
                 mode: Phaser.Scale.FIT,
                 autoCenter: Phaser.Scale.CENTER_BOTH
