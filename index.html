@@ -7,20 +7,13 @@
     <title>HEDLES</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.70.0/phaser.min.js"></script>
     <style>
-        @font-face {
-            font-family: 'Press Start 2P';
-            src: url('assets/PressStart2P-Regular.ttf') format('truetype');
-            font-weight: normal;
-            font-style: normal;
-        }
-
         body {
             margin: 0;
             padding: 0;
             width: 100%;
             height: 100vh;
             background: #000000;
-            font-family: 'Press Start 2P', monospace;
+            font-family: monospace;
             touch-action: none;
             overflow: hidden;
             position: fixed;
@@ -179,6 +172,7 @@
                 this.canAdvance = false;
                 this.typewriterSpeed = 50; // milliseconds per character
                 this.typewriterSounds = []; // Will store multiple blip sounds
+                this.fontLoaded = false; // Track font loading status
             }
 
             preload() {
@@ -191,10 +185,39 @@
                 this.load.image('click_play2', 'assets/click_play2.png');
                 this.load.audio('tap_button', 'assets/tap_button.mp3');
 
-                // Load typewriter sounds - try multiple variations for randomization
+                // Load typewriter sounds
                 this.load.audio('type_blip1', 'assets/type_blip1.mp3');
                 this.load.audio('type_blip2', 'assets/type_blip2.mp3');
                 this.load.audio('type_blip3', 'assets/type_blip3.mp3');
+
+                // Load the custom font using FontFace API - THE PROPER WAY
+                this.load.addListener('complete', () => {
+                    console.log('Assets loaded, now loading font...');
+
+                    // Create FontFace instance for Press Start 2P
+                    const fontFace = new FontFace('Press Start 2P', 'url(assets/PressStart2P-Regular.ttf)');
+
+                    // Load the font
+                    fontFace.load().then((loadedFont) => {
+                        // Add to document fonts
+                        document.fonts.add(loadedFont);
+                        this.fontLoaded = true;
+                        console.log('Font loaded successfully!');
+
+                        // Verify the font is available
+                        const fontAvailable = document.fonts.check('16px "Press Start 2P"');
+                        console.log('Font available:', fontAvailable);
+
+                        // Now we can safely create our story elements
+                        this.createStoryElements();
+
+                    }).catch((error) => {
+                        console.error('Font failed to load:', error);
+                        console.log('Falling back to monospace font');
+                        this.fontLoaded = false;
+                        this.createStoryElements();
+                    });
+                });
 
                 // Error handlers
                 this.load.on('loaderror', (file) => {
@@ -230,6 +253,11 @@
                 // Black background
                 this.cameras.main.setBackgroundColor(0x000000);
 
+                // Wait for font loading to complete before creating elements
+                // The createStoryElements() will be called from the font loading callback
+            }
+
+            createStoryElements() {
                 // Same layout calculations as StartScreen
                 const centerX = this.gameWidth / 2;
                 const bookScale = this.gameWidth / 1024; // 0.878
@@ -280,30 +308,35 @@
                 this.textBackground = this.add.image(centerX, textBgY, 'text_background');
                 this.textBackground.setDisplaySize(textBgWidth, textBgHeight);
 
-                // Create text object for story (much larger font, left-aligned, 20% margin)
+                // Create text object for story - PROPER FONT USAGE
                 const textMarginX = textBgWidth * 0.2; // 20% margin from left
                 const textMarginY = textBgHeight * 0.2; // 20% margin from top
+
+                // Use properly quoted font name as required by Phaser
+                const fontFamily = this.fontLoaded ? '"Press Start 2P"' : 'monospace';
+                const fontSize = this.fontLoaded ? '28px' : '32px'; // Pixel fonts work best at certain sizes
+
+                console.log('Creating text with font:', fontFamily, 'size:', fontSize);
 
                 this.storyText = this.add.text(
                     centerX - (textBgWidth / 2) + textMarginX,
                     textBgY - (textBgHeight / 2) + textMarginY,
                     '',
                     {
-                        fontFamily: 'Press Start 2P, Arial, monospace', // Fallback chain
-                        fontSize: '18px', // Smaller base size since we'll scale 
+                        fontFamily: fontFamily,
+                        fontSize: fontSize,
                         fill: '#ffffff',
                         align: 'left',
-                        wordWrap: { width: (textBgWidth - (textMarginX * 2)) / 1.5, useAdvancedWrap: true }, // Adjust wrap for scale
+                        wordWrap: { width: textBgWidth - (textMarginX * 2), useAdvancedWrap: true },
                         lineSpacing: 8
                     }
                 );
-                this.storyText.setOrigin(0, 0); // Left-aligned origin
-                this.storyText.setScale(1.5); // 18px * 1.5 = 27px effective size
+                this.storyText.setOrigin(0, 0);
 
                 // Add continue prompt (initially hidden)
                 this.continuePrompt = this.add.text(centerX, textBgY + (textBgHeight / 2) + 40, 'Press SPACE or CLICK to continue...', {
-                    fontFamily: 'Press Start 2P',
-                    fontSize: '48px', // Larger continue prompt
+                    fontFamily: fontFamily,
+                    fontSize: this.fontLoaded ? '18px' : '20px',
                     fill: '#888888',
                     align: 'center'
                 });
@@ -402,7 +435,7 @@
                         // Play typewriter sound for visible characters (not spaces)
                         if (fullText[charIndex] !== ' ' && this.typewriterSounds.length > 0) {
                             const randomSound = Phaser.Utils.Array.GetRandom(this.typewriterSounds);
-                            this.sound.play(randomSound, { volume: 0.3 }); // Lower volume so it's not annoying
+                            this.sound.play(randomSound, { volume: 0.3 });
                         }
 
                         charIndex++;
@@ -423,7 +456,7 @@
             }
         }
 
-        // Game Screen Scene (EXACTLY as before - no changes!)
+        // Game Screen Scene (existing HEDLES game logic)
         class GameScreen extends Phaser.Scene {
             constructor() {
                 super({ key: 'GameScreen' });
