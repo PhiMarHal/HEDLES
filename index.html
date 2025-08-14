@@ -521,10 +521,11 @@
                 this.HEDLE_SIZE = 160;
                 this.EGG_SIZE = 80; // Starting egg size
                 this.HEAD_SPEED = 800;
-                this.HEDLE_SPEED = 75;
+                this.HEDLE_SPEED = 100;
                 this.HEDLE_MOVE_TIME = 2000;
-                this.HEDLE_WAIT_TIME = 2000;
+                this.HEDLE_WAIT_TIME = 1000;
                 this.HEDLE_WALK_SPRITE_INTERVAL = 400;
+                this.MINIMUM_SPAWN_DELAY = 400;
                 this.EGG_GROWTH_TIME = 4000; // 4 seconds to hatch
                 this.MIN_HEAD_DAMAGE_SPEED = 50; // Minimum speed to damage hedles
                 this.BAT_SPEED = 200; // Speed of bat flying across screen
@@ -556,7 +557,7 @@
                 this.currentSpawnDelay = 4000; // Start with 4 second delay
                 this.spawnSpeedMultiplier = 0.9; // Make 10% faster each time
                 this.currentBatDelay = 8000; // First bat after 8 seconds
-                this.batDelayIncrement = 2000; // Add 2 seconds each time
+                this.batDelayIncrement = 0; // Add 0 seconds between each bat
                 this.spellSlots = [null, null, null, null]; // 4 spell slots
                 this.selectedSpell = null; // Currently selected spell
                 this.isMultiShotting = false; // Track multi-shot state
@@ -566,6 +567,9 @@
                 this.scoreDigits = []; // Track score digit sprites
                 this.DIGIT_SIZE = 96; // Height of each digit sprite (64x96)
                 this.gameOverFadeOverlay = null; // Screen fade overlay
+                this.currentFadeOpacity = 0; // Current screen fade opacity
+                this.targetFadeOpacity = 0;  // Target screen fade opacity
+                this.fadeTransitionSpeed = 1.0; // How fast to transition (higher = faster)
             }
 
             preload() {
@@ -1437,8 +1441,8 @@
                     this.spawnEgg();
                     // Make next spawn 10% faster
                     this.currentSpawnDelay *= this.spawnSpeedMultiplier;
-                    // Minimum spawn delay of 500ms
-                    this.currentSpawnDelay = Math.max(500, this.currentSpawnDelay);
+                    // Minimum spawn delay
+                    this.currentSpawnDelay = Math.max(this.MINIMUM_SPAWN_DELAY, this.currentSpawnDelay);
                     // Schedule next egg
                     this.scheduleNextEgg();
                 });
@@ -1756,7 +1760,7 @@
                 });
             }
 
-            updateScreenFade() {
+            updateScreenFade(delta) {
                 if (!this.gameOverFadeOverlay) return;
 
                 let maxThreatLevel = 0;
@@ -1775,13 +1779,31 @@
                     }
                 });
 
-                // Set fade opacity based on max threat level (0 to 80% opacity)
-                const fadeOpacity = maxThreatLevel * 0.8;
+                // Set target fade opacity based on max threat level (0 to 80% opacity)
+                this.targetFadeOpacity = maxThreatLevel * 0.8;
 
-                // Clear and redraw the graphics with new alpha
+                // Smoothly interpolate current opacity towards target
+                const deltaSeconds = delta * 0.001; // Convert delta to seconds
+                const transitionAmount = this.fadeTransitionSpeed * deltaSeconds;
+
+                if (this.currentFadeOpacity < this.targetFadeOpacity) {
+                    // Darkening - can be slightly faster for tension
+                    this.currentFadeOpacity = Math.min(
+                        this.currentFadeOpacity + transitionAmount * 1.2,
+                        this.targetFadeOpacity
+                    );
+                } else if (this.currentFadeOpacity > this.targetFadeOpacity) {
+                    // Lightening - can be slightly slower for relief
+                    this.currentFadeOpacity = Math.max(
+                        this.currentFadeOpacity - transitionAmount * 0.8,
+                        this.targetFadeOpacity
+                    );
+                }
+
+                // Clear and redraw the graphics with smoothed alpha
                 this.gameOverFadeOverlay.clear();
-                if (fadeOpacity > 0) {
-                    this.gameOverFadeOverlay.fillStyle(0x000000, fadeOpacity);
+                if (this.currentFadeOpacity > 0) {
+                    this.gameOverFadeOverlay.fillStyle(0x000000, this.currentFadeOpacity);
                     this.gameOverFadeOverlay.fillRect(0, 0, this.gameWidth, this.gameHeight);
                 }
             }
@@ -1933,8 +1955,8 @@
                     }
                 });
 
-                // Screen fade effect based on hedle proximity to bottom
-                this.updateScreenFade();
+                // Screen fade effect based on hedle proximity to bottom (now with smooth transitions)
+                this.updateScreenFade(delta);
 
                 // Keep hedles within bounds
                 this.hedles.children.entries.forEach(hedle => {
