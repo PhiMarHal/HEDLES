@@ -37,6 +37,7 @@
             height: 100%;
         }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/@farcade/game-sdk@latest/dist/index.min.js"></script>
 </head>
 
 <body>
@@ -99,17 +100,16 @@
                 const scaledBookHeight = 1220 * bookScale; // 1071px
                 const bookY = this.gameHeight / 2; // Center the book
                 const buttonSpacing = (this.gameHeight - scaledBookHeight) / 2; // 264px
-                const bottomButtonY = this.gameHeight - (buttonSpacing / 2); // Both at bottom
-                const storyButtonX = this.gameWidth * 0.25; // Left quarter
-                const playButtonX = this.gameWidth * 0.75; // Right quarter
+                const storyButtonY = buttonSpacing / 2; // 132px from top
+                const playButtonY = this.gameHeight - (buttonSpacing / 2); // 132px from bottom
 
                 // Add cover image (scaled to fit canvas width)
                 this.cover = this.add.image(centerX, bookY, 'cover_hedles');
                 this.cover.setDisplaySize(this.gameWidth, scaledBookHeight);
 
-                // Story button (bottom left) - 512x256 ratio
-                this.storyButton = this.add.image(storyButtonX, bottomButtonY, 'click_story');
-                this.storyButton.setDisplaySize(384, 192);
+                // Story button (in top area) - 512x256 ratio
+                this.storyButton = this.add.image(centerX, storyButtonY, 'click_story');
+                this.storyButton.setDisplaySize(256, 128);
                 this.storyButton.setInteractive();
                 this.storyButton.on('pointerover', () => {
                     this.storyButton.setTint(0xcccccc);
@@ -121,9 +121,9 @@
                     this.buttonPress(this.storyButton, 'click_story2', 'StoryScreen');
                 });
 
-                // Play button (bottom right) - 512x256 ratio
-                this.playButton = this.add.image(playButtonX, bottomButtonY, 'click_play');
-                this.playButton.setDisplaySize(384, 192);
+                // Play button (in bottom area) - 512x256 ratio
+                this.playButton = this.add.image(centerX, playButtonY, 'click_play');
+                this.playButton.setDisplaySize(256, 128);
                 this.playButton.setInteractive();
                 this.playButton.on('pointerover', () => {
                     this.playButton.setTint(0xcccccc);
@@ -140,6 +140,12 @@
                 this.enterKey.on('down', () => {
                     this.buttonPress(this.playButton, 'click_play2', 'GameScreen');
                 });
+
+                // Farcade SDK: Signal that the game is fully loaded and ready to play
+                if (window.FarcadeSDK) {
+                    window.FarcadeSDK.singlePlayer.actions.ready();
+                    console.log('Farcade SDK: Game ready signal sent.');
+                }
             }
 
             buttonPress(button, pressedTexture, targetScene) {
@@ -303,18 +309,16 @@
                 const scaledBookHeight = 1220 * bookScale; // 1071px
                 const bookY = this.gameHeight / 2; // Center the book
                 const buttonSpacing = (this.gameHeight - scaledBookHeight) / 2; // 264px
-                const bottomButtonY = this.gameHeight - (buttonSpacing / 2); // Both at bottom
-                const storyButtonX = this.gameWidth * 0.25; // Left quarter
-                const playButtonX = this.gameWidth * 0.75; // Right quarter
+                const storyButtonY = buttonSpacing / 2; // 132px from top
+                const playButtonY = this.gameHeight - (buttonSpacing / 2); // 132px from bottom
 
                 // Add secret cover image (same scaling)
                 this.cover = this.add.image(centerX, bookY, 'cover_secret');
                 this.cover.setDisplaySize(this.gameWidth, scaledBookHeight);
 
-                // Story button (bottom left) - 512x256 ratio
-                this.storyButton = this.add.image(storyButtonX, bottomButtonY, 'click_story');
-
-                this.storyButton.setDisplaySize(384, 192);
+                // Story button (stays visible in story mode) - 512x256 ratio
+                this.storyButton = this.add.image(centerX, storyButtonY, 'click_story');
+                this.storyButton.setDisplaySize(256, 128);
                 this.storyButton.setInteractive();
                 this.storyButton.on('pointerover', () => {
                     this.storyButton.setTint(0xcccccc);
@@ -326,10 +330,9 @@
                     this.buttonPress(this.storyButton, 'click_story2', 'StoryScreen');
                 });
 
-
-                // Play button (bottom right)
-                this.playButton = this.add.image(playButtonX, bottomButtonY, 'click_play');
-                this.playButton.setDisplaySize(384, 192);
+                // Play button (stays visible in story mode) - 512x256 ratio
+                this.playButton = this.add.image(centerX, playButtonY, 'click_play');
+                this.playButton.setDisplaySize(256, 128);
                 this.playButton.setInteractive();
                 this.playButton.on('pointerover', () => {
                     this.playButton.setTint(0xcccccc);
@@ -1505,7 +1508,7 @@
             createGameOverPlayButton(x, y) {
                 // Create play button similar to StartScreen
                 this.gameOverPlayButton = this.add.image(x, y, 'click_play');
-                this.gameOverPlayButton.setDisplaySize(384, 192); // Same size as StartScreen
+                this.gameOverPlayButton.setDisplaySize(256, 128); // Same size as StartScreen
                 this.gameOverPlayButton.setInteractive();
                 this.gameOverPlayButton.setDepth(200); // Above fade overlay
 
@@ -1519,6 +1522,11 @@
                     this.buttonPress(this.gameOverPlayButton, 'click_play2', () => {
                         this.scene.restart();
                     });
+
+                    // Farcade SDK: Hide our play button since Farcade UI takes over
+                    if (window.FarcadeSDK) {
+                        this.gameOverPlayButton.setVisible(false);
+                    }
                 });
             }
 
@@ -2476,6 +2484,14 @@
                         );
                     }
                 );
+
+                // Farcade SDK: Call gameOver with score after UI is set up
+                if (window.FarcadeSDK) {
+                    this.time.delayedCall(1000, () => {
+                        window.FarcadeSDK.singlePlayer.actions.gameOver({ score: this.score });
+                        console.log('Farcade SDK: Game over signal sent with score:', this.score);
+                    });
+                }
             }
 
             update(time, delta) {
@@ -2609,6 +2625,38 @@
         };
 
         const game = new Phaser.Game(config);
+
+        // Farcade SDK: Register event handlers for 'play_again' and 'toggle_mute'
+        if (window.FarcadeSDK) {
+            // Handle play again requests from Farcade
+            window.FarcadeSDK.on('play_again', () => {
+                console.log('Farcade SDK: Play again requested.');
+                const gameScene = game.scene.getScene('GameScreen');
+                if (gameScene) {
+                    // Stop background music if playing
+                    if (gameScene.backgroundMusic && gameScene.backgroundMusic.isPlaying) {
+                        gameScene.backgroundMusic.stop();
+                    }
+                    // Restart the game scene
+                    game.scene.start('GameScreen');
+                    console.log('Farcade SDK: Game restarted.');
+                } else {
+                    // Fallback: restart from start screen
+                    game.scene.start('StartScreen');
+                    console.log('Farcade SDK: Restarted from start screen.');
+                }
+            });
+
+            // Handle mute/unmute requests from Farcade
+            window.FarcadeSDK.on('toggle_mute', (data) => {
+                console.log('Farcade SDK: Mute toggle requested, isMuted:', data.isMuted);
+                // Use Phaser's global sound manager to mute/unmute all audio
+                game.sound.mute = data.isMuted;
+                console.log('Farcade SDK: All game audio mute state set to:', data.isMuted);
+            });
+
+            console.log('Farcade SDK: Event handlers registered.');
+        }
     </script>
 </body>
 
