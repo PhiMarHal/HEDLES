@@ -613,6 +613,7 @@
                 this.currentFadeOpacity = 0; // Current screen fade opacity
                 this.targetFadeOpacity = 0;  // Target screen fade opacity
                 this.fadeTransitionSpeed = 1.0; // How fast to transition (higher = faster)
+                this.fadeUpdateCounter = 0; // Frame counter for throttling fade updates
 
                 // Game over state
                 this.gameOverMessage = null;
@@ -2204,6 +2205,11 @@
             updateScreenFade(delta) {
                 if (!this.gameOverFadeOverlay) return;
 
+                // Throttle to every 4 frames (15fps instead of 60fps)
+                this.fadeUpdateCounter++;
+                if (this.fadeUpdateCounter < 4) return;
+                this.fadeUpdateCounter = 0;
+
                 let maxThreatLevel = 0;
 
                 // Check all hedles for proximity to bottom
@@ -2221,31 +2227,39 @@
                 });
 
                 // Set target fade opacity based on max threat level (0 to 80% opacity)
-                this.targetFadeOpacity = maxThreatLevel * 0.8;
+                const newTargetOpacity = maxThreatLevel * 0.8;
 
-                // Smoothly interpolate current opacity towards target
-                const deltaSeconds = delta * 0.001; // Convert delta to seconds
-                const transitionAmount = this.fadeTransitionSpeed * deltaSeconds;
+                // Only proceed if target changed or we're still transitioning
+                if (newTargetOpacity !== this.targetFadeOpacity ||
+                    Math.abs(this.currentFadeOpacity - this.targetFadeOpacity) > 0.01) {
 
-                if (this.currentFadeOpacity < this.targetFadeOpacity) {
-                    // Darkening - can be slightly faster for tension
-                    this.currentFadeOpacity = Math.min(
-                        this.currentFadeOpacity + transitionAmount * 1.2,
-                        this.targetFadeOpacity
-                    );
-                } else if (this.currentFadeOpacity > this.targetFadeOpacity) {
-                    // Lightening - can be slightly slower for relief
-                    this.currentFadeOpacity = Math.max(
-                        this.currentFadeOpacity - transitionAmount * 0.8,
-                        this.targetFadeOpacity
-                    );
-                }
+                    this.targetFadeOpacity = newTargetOpacity;
 
-                // Clear and redraw the graphics with smoothed alpha
-                this.gameOverFadeOverlay.clear();
-                if (this.currentFadeOpacity > 0) {
-                    this.gameOverFadeOverlay.fillStyle(0x000000, this.currentFadeOpacity);
-                    this.gameOverFadeOverlay.fillRect(0, 0, this.gameWidth, this.gameHeight);
+                    // Smoothly interpolate current opacity towards target
+                    // Use 4x delta since we're updating every 4 frames
+                    const deltaSeconds = (delta * 4) * 0.001; // Convert delta to seconds and account for throttling
+                    const transitionAmount = this.fadeTransitionSpeed * deltaSeconds;
+
+                    if (this.currentFadeOpacity < this.targetFadeOpacity) {
+                        // Darkening - can be slightly faster for tension
+                        this.currentFadeOpacity = Math.min(
+                            this.currentFadeOpacity + transitionAmount * 1.2,
+                            this.targetFadeOpacity
+                        );
+                    } else if (this.currentFadeOpacity > this.targetFadeOpacity) {
+                        // Lightening - can be slightly slower for relief
+                        this.currentFadeOpacity = Math.max(
+                            this.currentFadeOpacity - transitionAmount * 0.8,
+                            this.targetFadeOpacity
+                        );
+                    }
+
+                    // Clear and redraw the graphics with smoothed alpha
+                    this.gameOverFadeOverlay.clear();
+                    if (this.currentFadeOpacity > 0) {
+                        this.gameOverFadeOverlay.fillStyle(0x000000, this.currentFadeOpacity);
+                        this.gameOverFadeOverlay.fillRect(0, 0, this.gameWidth, this.gameHeight);
+                    }
                 }
             }
 
