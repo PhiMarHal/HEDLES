@@ -1452,6 +1452,8 @@
                 return lines.join('\n');
             }
 
+            // Replace your existing createGameOverTypewriter function with this enhanced version:
+
             createGameOverTypewriter(x, y, callback) {
                 // Select random message from array
                 const message = Phaser.Utils.Array.GetRandom(this.gameOverMessages);
@@ -1459,8 +1461,7 @@
                 const fontFamily = '"Press Start 2P", "Press Start 2P Local", monospace';
                 const fontSize = this.fontLoaded ? '32px' : '36px';
 
-                // Calculate wrap width - use 80% of game width for safety
-                const wrapWidth = this.gameWidth * 0.8;
+                const wrapWidth = this.gameWidth * 0.96;
 
                 // Apply word wrapping using our reusable function
                 const wrappedMessage = this.wrapText(message, fontFamily, fontSize, wrapWidth, this);
@@ -1475,13 +1476,18 @@
                 this.gameOverMessage.setOrigin(0.5);
                 this.gameOverMessage.setDepth(200); // Above fade overlay
 
+                // Track typewriter state for skip functionality
+                this.gameOverTyping = true;
+                this.gameOverCanAdvance = false;
+                this.gameOverWrappedText = wrappedMessage;
+
                 // Type message character by character
                 let currentText = '';
                 let charIndex = 0;
                 const typewriterSpeed = 80; // Slightly slower for dramatic effect
 
                 const typeNextChar = () => {
-                    if (charIndex < wrappedMessage.length) {
+                    if (charIndex < wrappedMessage.length && this.gameOverTyping) {
                         currentText += wrappedMessage[charIndex];
                         this.gameOverMessage.setText(currentText);
 
@@ -1492,14 +1498,76 @@
                         }
 
                         charIndex++;
-                        this.time.delayedCall(typewriterSpeed, typeNextChar);
+                        this.typewriterTimer = this.time.delayedCall(typewriterSpeed, typeNextChar);
                     } else {
-                        // Typing complete, call callback
-                        if (callback) callback();
+                        // Typing complete
+                        this.completeGameOverTypewriter(callback);
                     }
                 };
 
+                // Add input handlers for skipping typewriter
+                const gameOverAdvanceHandler = () => {
+                    if (this.gameOverTyping) {
+                        // Skip to end of current text
+                        this.completeGameOverTypewriter(callback, true);
+                    } else if (this.gameOverCanAdvance) {
+                        // Text is complete and ready to advance
+                        this.handleGameOverComplete(callback);
+                    }
+                };
+
+                // Add input listeners (remove any existing ones first)
+                this.input.off('pointerdown', this.gameOverPointerHandler);
+                this.gameOverPointerHandler = gameOverAdvanceHandler;
+                this.input.on('pointerdown', this.gameOverPointerHandler);
+
+                if (this.gameOverSpaceKey) {
+                    this.gameOverSpaceKey.off('down');
+                }
+                this.gameOverSpaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+                this.gameOverSpaceKey.on('down', gameOverAdvanceHandler);
+
                 typeNextChar();
+            }
+
+            // Add these new helper functions to your GameScreen class:
+
+            completeGameOverTypewriter(callback, wasSkipped = false) {
+                this.gameOverTyping = false;
+                this.gameOverCanAdvance = true;
+
+                // Clear any pending typewriter timer
+                if (this.typewriterTimer) {
+                    this.typewriterTimer.destroy();
+                }
+
+                // Show complete text
+                this.gameOverMessage.setText(this.gameOverWrappedText);
+
+                // If text was skipped, wait briefly then auto-advance
+                if (wasSkipped) {
+                    this.time.delayedCall(500, () => {
+                        this.handleGameOverComplete(callback);
+                    });
+                } else {
+                    // If typing completed naturally, wait a bit then auto-advance  
+                    this.time.delayedCall(1500, () => {
+                        this.handleGameOverComplete(callback);
+                    });
+                }
+            }
+
+            handleGameOverComplete(callback) {
+                // Clean up input handlers
+                this.input.off('pointerdown', this.gameOverPointerHandler);
+                if (this.gameOverSpaceKey) {
+                    this.gameOverSpaceKey.off('down');
+                }
+
+                // Add 2-second delay before showing play button
+                this.time.delayedCall(2000, () => {
+                    if (callback) callback();
+                });
             }
 
             createGameOverPlayButton(x, y) {

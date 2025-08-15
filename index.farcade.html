@@ -100,16 +100,17 @@
                 const scaledBookHeight = 1220 * bookScale; // 1071px
                 const bookY = this.gameHeight / 2; // Center the book
                 const buttonSpacing = (this.gameHeight - scaledBookHeight) / 2; // 264px
-                const storyButtonY = buttonSpacing / 2; // 132px from top
-                const playButtonY = this.gameHeight - (buttonSpacing / 2); // 132px from bottom
+                const bottomButtonY = this.gameHeight - (buttonSpacing / 2); // Both at bottom
+                const storyButtonX = this.gameWidth * 0.25; // Left quarter
+                const playButtonX = this.gameWidth * 0.75; // Right quarter
 
                 // Add cover image (scaled to fit canvas width)
                 this.cover = this.add.image(centerX, bookY, 'cover_hedles');
                 this.cover.setDisplaySize(this.gameWidth, scaledBookHeight);
 
-                // Story button (in top area) - 512x256 ratio
-                this.storyButton = this.add.image(centerX, storyButtonY, 'click_story');
-                this.storyButton.setDisplaySize(256, 128);
+                // Story button (bottom left) - 512x256 ratio
+                this.storyButton = this.add.image(storyButtonX, bottomButtonY, 'click_story');
+                this.storyButton.setDisplaySize(384, 192);
                 this.storyButton.setInteractive();
                 this.storyButton.on('pointerover', () => {
                     this.storyButton.setTint(0xcccccc);
@@ -121,9 +122,9 @@
                     this.buttonPress(this.storyButton, 'click_story2', 'StoryScreen');
                 });
 
-                // Play button (in bottom area) - 512x256 ratio
-                this.playButton = this.add.image(centerX, playButtonY, 'click_play');
-                this.playButton.setDisplaySize(256, 128);
+                // Play button (bottom right) - 512x256 ratio
+                this.playButton = this.add.image(playButtonX, bottomButtonY, 'click_play');
+                this.playButton.setDisplaySize(384, 192);
                 this.playButton.setInteractive();
                 this.playButton.on('pointerover', () => {
                     this.playButton.setTint(0xcccccc);
@@ -309,16 +310,18 @@
                 const scaledBookHeight = 1220 * bookScale; // 1071px
                 const bookY = this.gameHeight / 2; // Center the book
                 const buttonSpacing = (this.gameHeight - scaledBookHeight) / 2; // 264px
-                const storyButtonY = buttonSpacing / 2; // 132px from top
-                const playButtonY = this.gameHeight - (buttonSpacing / 2); // 132px from bottom
+                const bottomButtonY = this.gameHeight - (buttonSpacing / 2); // Both at bottom
+                const storyButtonX = this.gameWidth * 0.25; // Left quarter
+                const playButtonX = this.gameWidth * 0.75; // Right quarter
 
                 // Add secret cover image (same scaling)
                 this.cover = this.add.image(centerX, bookY, 'cover_secret');
                 this.cover.setDisplaySize(this.gameWidth, scaledBookHeight);
 
-                // Story button (stays visible in story mode) - 512x256 ratio
-                this.storyButton = this.add.image(centerX, storyButtonY, 'click_story');
-                this.storyButton.setDisplaySize(256, 128);
+                // Story button (bottom left) - 512x256 ratio
+                this.storyButton = this.add.image(storyButtonX, bottomButtonY, 'click_story');
+
+                this.storyButton.setDisplaySize(384, 192);
                 this.storyButton.setInteractive();
                 this.storyButton.on('pointerover', () => {
                     this.storyButton.setTint(0xcccccc);
@@ -330,9 +333,10 @@
                     this.buttonPress(this.storyButton, 'click_story2', 'StoryScreen');
                 });
 
-                // Play button (stays visible in story mode) - 512x256 ratio
-                this.playButton = this.add.image(centerX, playButtonY, 'click_play');
-                this.playButton.setDisplaySize(256, 128);
+
+                // Play button (bottom right)
+                this.playButton = this.add.image(playButtonX, bottomButtonY, 'click_play');
+                this.playButton.setDisplaySize(384, 192);
                 this.playButton.setInteractive();
                 this.playButton.on('pointerover', () => {
                     this.playButton.setTint(0xcccccc);
@@ -1455,6 +1459,8 @@
                 return lines.join('\n');
             }
 
+            // Replace your existing createGameOverTypewriter function with this enhanced version:
+
             createGameOverTypewriter(x, y, callback) {
                 // Select random message from array
                 const message = Phaser.Utils.Array.GetRandom(this.gameOverMessages);
@@ -1462,8 +1468,7 @@
                 const fontFamily = '"Press Start 2P", "Press Start 2P Local", monospace';
                 const fontSize = this.fontLoaded ? '32px' : '36px';
 
-                // Calculate wrap width - use 80% of game width for safety
-                const wrapWidth = this.gameWidth * 0.8;
+                const wrapWidth = this.gameWidth * 0.96;
 
                 // Apply word wrapping using our reusable function
                 const wrappedMessage = this.wrapText(message, fontFamily, fontSize, wrapWidth, this);
@@ -1478,13 +1483,18 @@
                 this.gameOverMessage.setOrigin(0.5);
                 this.gameOverMessage.setDepth(200); // Above fade overlay
 
+                // Track typewriter state for skip functionality
+                this.gameOverTyping = true;
+                this.gameOverCanAdvance = false;
+                this.gameOverWrappedText = wrappedMessage;
+
                 // Type message character by character
                 let currentText = '';
                 let charIndex = 0;
                 const typewriterSpeed = 80; // Slightly slower for dramatic effect
 
                 const typeNextChar = () => {
-                    if (charIndex < wrappedMessage.length) {
+                    if (charIndex < wrappedMessage.length && this.gameOverTyping) {
                         currentText += wrappedMessage[charIndex];
                         this.gameOverMessage.setText(currentText);
 
@@ -1495,20 +1505,82 @@
                         }
 
                         charIndex++;
-                        this.time.delayedCall(typewriterSpeed, typeNextChar);
+                        this.typewriterTimer = this.time.delayedCall(typewriterSpeed, typeNextChar);
                     } else {
-                        // Typing complete, call callback
-                        if (callback) callback();
+                        // Typing complete
+                        this.completeGameOverTypewriter(callback);
                     }
                 };
 
+                // Add input handlers for skipping typewriter
+                const gameOverAdvanceHandler = () => {
+                    if (this.gameOverTyping) {
+                        // Skip to end of current text
+                        this.completeGameOverTypewriter(callback, true);
+                    } else if (this.gameOverCanAdvance) {
+                        // Text is complete and ready to advance
+                        this.handleGameOverComplete(callback);
+                    }
+                };
+
+                // Add input listeners (remove any existing ones first)
+                this.input.off('pointerdown', this.gameOverPointerHandler);
+                this.gameOverPointerHandler = gameOverAdvanceHandler;
+                this.input.on('pointerdown', this.gameOverPointerHandler);
+
+                if (this.gameOverSpaceKey) {
+                    this.gameOverSpaceKey.off('down');
+                }
+                this.gameOverSpaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+                this.gameOverSpaceKey.on('down', gameOverAdvanceHandler);
+
                 typeNextChar();
+            }
+
+            // Add these new helper functions to your GameScreen class:
+
+            completeGameOverTypewriter(callback, wasSkipped = false) {
+                this.gameOverTyping = false;
+                this.gameOverCanAdvance = true;
+
+                // Clear any pending typewriter timer
+                if (this.typewriterTimer) {
+                    this.typewriterTimer.destroy();
+                }
+
+                // Show complete text
+                this.gameOverMessage.setText(this.gameOverWrappedText);
+
+                // If text was skipped, wait briefly then auto-advance
+                if (wasSkipped) {
+                    this.time.delayedCall(500, () => {
+                        this.handleGameOverComplete(callback);
+                    });
+                } else {
+                    // If typing completed naturally, wait a bit then auto-advance  
+                    this.time.delayedCall(1500, () => {
+                        this.handleGameOverComplete(callback);
+                    });
+                }
+            }
+
+            handleGameOverComplete(callback) {
+                // Clean up input handlers
+                this.input.off('pointerdown', this.gameOverPointerHandler);
+                if (this.gameOverSpaceKey) {
+                    this.gameOverSpaceKey.off('down');
+                }
+
+                // Add 2-second delay before showing play button
+                this.time.delayedCall(2000, () => {
+                    if (callback) callback();
+                });
             }
 
             createGameOverPlayButton(x, y) {
                 // Create play button similar to StartScreen
                 this.gameOverPlayButton = this.add.image(x, y, 'click_play');
-                this.gameOverPlayButton.setDisplaySize(256, 128); // Same size as StartScreen
+                this.gameOverPlayButton.setDisplaySize(384, 192); // Same size as StartScreen
                 this.gameOverPlayButton.setInteractive();
                 this.gameOverPlayButton.setDepth(200); // Above fade overlay
 
@@ -1523,10 +1595,10 @@
                         this.scene.restart();
                     });
 
-                    // Farcade SDK: Hide our play button since Farcade UI takes over
-                    if (window.FarcadeSDK) {
-                        this.gameOverPlayButton.setVisible(false);
-                    }
+                // Farcade SDK: Hide our play button since Farcade UI takes over
+                if (window.FarcadeSDK) {
+                    this.gameOverPlayButton.setVisible(false);
+                }
                 });
             }
 
@@ -2478,20 +2550,18 @@
                     this.gameHeight / 2,
                     () => {
                         // After message is complete, show play button (moved lower)
+                        // Farcade SDK: Call gameOver with score when play button appears
+                        if (window.FarcadeSDK) {
+                            window.FarcadeSDK.singlePlayer.actions.gameOver({ score: this.score });
+                            console.log('Farcade SDK: Game over signal sent with score:', this.score);
+                        }
+
                         this.createGameOverPlayButton(
                             this.gameWidth / 2,
                             this.gameHeight / 2 + 200 // Moved down from +120 to +200
                         );
                     }
                 );
-
-                // Farcade SDK: Call gameOver with score after UI is set up
-                if (window.FarcadeSDK) {
-                    this.time.delayedCall(1000, () => {
-                        window.FarcadeSDK.singlePlayer.actions.gameOver({ score: this.score });
-                        console.log('Farcade SDK: Game over signal sent with score:', this.score);
-                    });
-                }
             }
 
             update(time, delta) {

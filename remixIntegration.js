@@ -51,36 +51,34 @@ function injectFarcadeGameLogic(html) {
                 }`;
     });
 
-    // 2. Inject gameOver() call in GameScreen.endGame() after game over message is created
-    const gameOverPattern = /(this\.createGameOverTypewriter\([\s\S]*?\{[\s\S]*?\/\/ After message is complete, show play button[\s\S]*?this\.createGameOverPlayButton\([\s\S]*?\);[\s\S]*?\}[\s\S]*?\);)/;
-    modifiedHtml = modifiedHtml.replace(gameOverPattern, (match) => {
-        return `${match}
-
-                        // Farcade SDK: Call gameOver with score after UI is set up
+    // 2. Inject gameOver() call right before the play button appears
+    const createGameOverPlayButtonPattern = /(this\.createGameOverPlayButton\([\s\S]*?\);)/;
+    modifiedHtml = modifiedHtml.replace(createGameOverPlayButtonPattern, (match) => {
+        return `// Farcade SDK: Call gameOver with score when play button appears
                         if (window.FarcadeSDK) {
-                            this.time.delayedCall(1000, () => {
-                                window.FarcadeSDK.singlePlayer.actions.gameOver({ score: this.score });
-                                console.log('Farcade SDK: Game over signal sent with score:', this.score);
-                            });
-                        }`;
+                            window.FarcadeSDK.singlePlayer.actions.gameOver({ score: this.score });
+                            console.log('Farcade SDK: Game over signal sent with score:', this.score);
+                        }
+
+                        ${match}`;
     });
 
     // 3. FALLBACK: If the above pattern doesn't match, try a simpler approach
     if (!modifiedHtml.includes('window.FarcadeSDK.singlePlayer.actions.gameOver')) {
         console.log('Primary gameOver pattern not found, trying fallback pattern...');
 
-        // Look for the createGameOverPlayButton call
-        const fallbackPattern = /(this\.createGameOverPlayButton\([\s\S]*?\);)/;
-        modifiedHtml = modifiedHtml.replace(fallbackPattern, (match) => {
+        // Look for endGame function and inject at the very end
+        const endGameFallbackPattern = /(this\.createGameOverTypewriter\([\s\S]*?\);[\s\S]*?\})/;
+        modifiedHtml = modifiedHtml.replace(endGameFallbackPattern, (match) => {
             return `${match}
 
-                        // Farcade SDK: Call gameOver with score (fallback injection)
-                        if (window.FarcadeSDK) {
-                            this.time.delayedCall(1000, () => {
-                                window.FarcadeSDK.singlePlayer.actions.gameOver({ score: this.score });
-                                console.log('Farcade SDK: Game over signal sent with score (fallback):', this.score);
-                            });
-                        }`;
+                // Farcade SDK: Call gameOver with score (fallback injection)
+                if (window.FarcadeSDK) {
+                    this.time.delayedCall(3000, () => {
+                        window.FarcadeSDK.singlePlayer.actions.gameOver({ score: this.score });
+                        console.log('Farcade SDK: Game over signal sent with score (fallback):', this.score);
+                    });
+                }`;
         });
     }
 
