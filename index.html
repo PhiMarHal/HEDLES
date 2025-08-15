@@ -587,6 +587,12 @@
                 this.targetFadeOpacity = 0;  // Target screen fade opacity
                 this.fadeTransitionSpeed = 1.0; // How fast to transition (higher = faster)
 
+                // Game over state
+                this.gameOverMessage = null;
+                this.gameOverPlayButton = null;
+                this.fontLoaded = false;
+                this.typewriterSounds = [];
+
                 // Horse state
                 this.horse = null;
                 this.horseWalkFrame = 0;
@@ -604,6 +610,16 @@
 
                 // Load background music
                 this.load.audio('hedles_music', 'assets/HEDLES.mp3');
+
+                // Load play button assets for game over screen
+                this.load.image('click_play', 'assets/click_play.png');
+                this.load.image('click_play2', 'assets/click_play2.png');
+                this.load.audio('tap_button', 'assets/tap_button.mp3');
+
+                // Load typewriter sounds for game over message
+                this.load.audio('type_blip1', 'assets/type_blip1.mp3');
+                this.load.audio('type_blip2', 'assets/type_blip2.mp3');
+                this.load.audio('type_blip3', 'assets/type_blip3.mp3');
 
                 // Load background
                 this.load.image('background', 'assets/background.png');
@@ -658,6 +674,36 @@
                     this.load.image(`horse_egg_${i}`, `assets/horse_egg_${i}.png`);
                 }
 
+                // Load the custom font using FontFace API
+                this.load.addListener('complete', () => {
+                    console.log('Game assets loaded, now loading font...');
+
+                    // Create FontFace instance for Press Start 2P
+                    const fontFace = new FontFace('Press Start 2P', 'url(assets/PressStart2P-Regular.ttf)');
+
+                    // Load the font
+                    fontFace.load().then((loadedFont) => {
+                        // Add to document fonts
+                        document.fonts.add(loadedFont);
+                        this.fontLoaded = true;
+                        console.log('Font loaded successfully in GameScreen!');
+
+                    }).catch((error) => {
+                        console.error('Font failed to load in GameScreen:', error);
+                        this.fontLoaded = false;
+                    });
+                });
+
+                // Collect available typewriter sounds
+                this.load.addListener('complete', () => {
+                    this.typewriterSounds = [];
+                    for (let i = 1; i <= 3; i++) {
+                        if (this.cache.audio.exists(`type_blip${i}`)) {
+                            this.typewriterSounds.push(`type_blip${i}`);
+                        }
+                    }
+                });
+
                 // Add error handler for missing sprites
                 this.load.on('loaderror', (file) => {
                     console.warn('Missing asset:', file.key);
@@ -709,6 +755,13 @@
                         graphics.fillStyle(0xFFFFFF, 1); // White for egg
                         graphics.fillEllipse(60, 70, 20, 15);
                         graphics.generateTexture(file.key, 120, 80);
+                    } else if (file.key.startsWith('click_play')) {
+                        const isGolden = file.key.includes('2');
+                        graphics.fillStyle(0x444444, 1);
+                        graphics.fillRect(0, 0, 512, 256);
+                        graphics.fillStyle(isGolden ? 0xFFD700 : 0xffffff, 1);
+                        graphics.fillRect(20, 50, 472, 156);
+                        graphics.generateTexture(file.key, 512, 256);
                     }
 
                     graphics.destroy();
@@ -1194,6 +1247,99 @@
 
                     this.scoreDigits.push(digitSprite);
                 }
+            }
+
+            animateScoreChange() {
+                // Scale animation for all current score digits
+                this.scoreDigits.forEach(digit => {
+                    this.tweens.add({
+                        targets: digit,
+                        scaleX: 1.2,
+                        scaleY: 1.2,
+                        duration: 200,
+                        yoyo: true,
+                        ease: 'Back.easeOut'
+                    });
+                });
+            }
+
+            createGameOverTypewriter(message, x, y, callback) {
+                const fontFamily = this.fontLoaded ? '"Press Start 2P"' : 'monospace';
+                const fontSize = this.fontLoaded ? '32px' : '36px';
+
+                // Create text object
+                this.gameOverMessage = this.add.text(x, y, '', {
+                    fontFamily: fontFamily,
+                    fontSize: fontSize,
+                    fill: '#ff0000',
+                    align: 'center'
+                });
+                this.gameOverMessage.setOrigin(0.5);
+                this.gameOverMessage.setDepth(200); // Above fade overlay
+
+                // Type message character by character
+                let currentText = '';
+                let charIndex = 0;
+                const typewriterSpeed = 80; // Slightly slower for dramatic effect
+
+                const typeNextChar = () => {
+                    if (charIndex < message.length) {
+                        currentText += message[charIndex];
+                        this.gameOverMessage.setText(currentText);
+
+                        // Play typewriter sound for visible characters (not spaces)
+                        if (message[charIndex] !== ' ' && this.typewriterSounds.length > 0) {
+                            const randomSound = Phaser.Utils.Array.GetRandom(this.typewriterSounds);
+                            this.sound.play(randomSound, { volume: 0.3 });
+                        }
+
+                        charIndex++;
+                        this.time.delayedCall(typewriterSpeed, typeNextChar);
+                    } else {
+                        // Typing complete, call callback
+                        if (callback) callback();
+                    }
+                };
+
+                typeNextChar();
+            }
+
+            createGameOverPlayButton(x, y) {
+                // Create play button similar to StartScreen
+                this.gameOverPlayButton = this.add.image(x, y, 'click_play');
+                this.gameOverPlayButton.setDisplaySize(256, 128); // Same size as StartScreen
+                this.gameOverPlayButton.setInteractive();
+                this.gameOverPlayButton.setDepth(200); // Above fade overlay
+
+                this.gameOverPlayButton.on('pointerover', () => {
+                    this.gameOverPlayButton.setTint(0xcccccc);
+                });
+                this.gameOverPlayButton.on('pointerout', () => {
+                    this.gameOverPlayButton.setTint(0xffffff);
+                });
+                this.gameOverPlayButton.on('pointerdown', () => {
+                    this.buttonPress(this.gameOverPlayButton, 'click_play2', () => {
+                        this.scene.restart();
+                    });
+                });
+            }
+
+            buttonPress(button, pressedTexture, callback) {
+                // Play button sound
+                if (this.cache.audio.exists('tap_button')) {
+                    this.sound.play('tap_button');
+                }
+
+                // Briefly show pressed version
+                const originalTexture = button.texture.key;
+                button.setTexture(pressedTexture);
+
+                this.time.delayedCall(150, () => {
+                    button.setTexture(originalTexture);
+                    this.time.delayedCall(50, () => {
+                        if (callback) callback();
+                    });
+                });
             }
 
             scheduleBat() {
@@ -1702,6 +1848,7 @@
                 // Update score
                 this.score++;
                 this.updateScoreDisplay();
+                this.animateScoreChange();
             }
 
             scheduleNextEgg() {
@@ -1925,6 +2072,7 @@
                 // Update score
                 this.score++;
                 this.updateScoreDisplay();
+                this.animateScoreChange();
 
                 // Bounce head (except storm which pierces)
                 if (!head.isPiercing) {
@@ -2091,34 +2239,33 @@
                     });
                 }
 
-                // Hide score digits
-                this.scoreDigits.forEach(digit => digit.setVisible(false));
-
-                this.add.text(this.gameWidth / 2, this.gameHeight / 2, 'GAME OVER', {
-                    fontSize: '96px',
-                    fill: '#ff0000'
-                }).setOrigin(0.5).setDepth(200); // Above fade overlay
-
-                // Add play again button
-                const playAgainButton = this.add.text(this.gameWidth / 2, this.gameHeight / 2 + 120, 'PLAY AGAIN', {
-                    fontSize: '48px',
-                    fill: '#00ff00',
-                    backgroundColor: '#000000',
-                    padding: { x: 20, y: 10 }
-                }).setOrigin(0.5).setDepth(200); // Above fade overlay
-
-                playAgainButton.setInteractive();
-                playAgainButton.on('pointerover', () => {
-                    playAgainButton.setScale(1.1);
-                    playAgainButton.setFill('#ffffff');
+                // Keep score digits visible (don't hide them anymore)
+                // Score digits stay visible and get a gentle pulsing animation
+                this.scoreDigits.forEach(digit => {
+                    this.tweens.add({
+                        targets: digit,
+                        scaleX: 1.1,
+                        scaleY: 1.1,
+                        duration: 1000,
+                        yoyo: true,
+                        repeat: -1,
+                        ease: 'Sine.easeInOut'
+                    });
                 });
-                playAgainButton.on('pointerout', () => {
-                    playAgainButton.setScale(1);
-                    playAgainButton.setFill('#00ff00');
-                });
-                playAgainButton.on('pointerdown', () => {
-                    this.scene.restart();
-                });
+
+                // Create typewriter game over message
+                this.createGameOverTypewriter(
+                    'The darkness engulfs you...',
+                    this.gameWidth / 2,
+                    this.gameHeight / 2,
+                    () => {
+                        // After message is complete, show play button
+                        this.createGameOverPlayButton(
+                            this.gameWidth / 2,
+                            this.gameHeight / 2 + 120
+                        );
+                    }
+                );
             }
 
             update(time, delta) {
