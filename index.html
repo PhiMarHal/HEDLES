@@ -5,6 +5,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>HEDLES</title>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="assets/bat_icon.png">
+
+    <!-- Google Fonts - Press Start 2P with fallback to local -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.70.0/phaser.min.js"></script>
     <style>
         body {
@@ -200,33 +209,51 @@
                 this.load.audio('type_blip2', 'assets/type_blip2.mp3');
                 this.load.audio('type_blip3', 'assets/type_blip3.mp3');
 
-                // Load the custom font using FontFace API - THE PROPER WAY
+                // Load the custom font using robust Google Fonts detection
                 this.load.addListener('complete', () => {
-                    console.log('Assets loaded, now loading font...');
+                    console.log('Assets loaded, now waiting for Google Fonts...');
 
-                    // Create FontFace instance for Press Start 2P
-                    const fontFace = new FontFace('Press Start 2P', 'url(assets/PressStart2P-Regular.ttf)');
+                    // Force the font to load and be ready for measurements
+                    const forceLoadFont = () => {
+                        // Create a hidden test element to force font rendering
+                        const testElement = document.createElement('div');
+                        testElement.style.fontFamily = '"Press Start 2P", monospace';
+                        testElement.style.fontSize = '24px';
+                        testElement.style.position = 'absolute';
+                        testElement.style.visibility = 'hidden';
+                        testElement.style.left = '-9999px';
+                        testElement.textContent = 'Test font loading';
+                        document.body.appendChild(testElement);
 
-                    // Load the font
-                    fontFace.load().then((loadedFont) => {
-                        // Add to document fonts
-                        document.fonts.add(loadedFont);
-                        this.fontLoaded = true;
-                        console.log('Font loaded successfully!');
+                        // Wait for fonts, then ensure rendering is complete
+                        document.fonts.ready.then(() => {
+                            console.log('Fonts ready, forcing render...');
 
-                        // Verify the font is available
-                        const fontAvailable = document.fonts.check('16px "Press Start 2P"');
-                        console.log('Font available:', fontAvailable);
+                            // Small delay to ensure the font is actually rendered
+                            setTimeout(() => {
+                                // Check if font is available
+                                const fontLoaded = document.fonts.check('24px "Press Start 2P"');
+                                console.log('Press Start 2P available:', fontLoaded);
 
-                        // Now we can safely create our story elements
-                        this.createStoryElements();
+                                this.fontLoaded = fontLoaded;
 
-                    }).catch((error) => {
-                        console.error('Font failed to load:', error);
-                        console.log('Falling back to monospace font');
-                        this.fontLoaded = false;
-                        this.createStoryElements();
-                    });
+                                // Clean up test element
+                                document.body.removeChild(testElement);
+
+                                // Now create story elements with properly loaded font
+                                this.createStoryElements();
+
+                            }, 50); // Small delay to ensure font rendering is complete
+
+                        }).catch((error) => {
+                            console.error('Font loading failed:', error);
+                            document.body.removeChild(testElement);
+                            this.fontLoaded = false;
+                            this.createStoryElements();
+                        });
+                    };
+
+                    forceLoadFont();
                 });
 
                 // Error handlers
@@ -318,18 +345,18 @@
                 this.textBackground = this.add.image(centerX, textBgY, 'text_background');
                 this.textBackground.setDisplaySize(textBgWidth, textBgHeight);
 
-                // Create text object for story - UPDATED MARGINS
-                const textMarginX = textBgWidth * 0.1; // margin from left
+                // Create text object for story - SLIGHTLY MORE GENEROUS MARGINS for Press Start 2P
+                const textMarginX = textBgWidth * 0.08; // Reduced from 0.1 to 0.08 for more wrap space
                 const textMarginY = textBgHeight * 0.22; // margin from top
 
                 // Store the wrap width for later use
                 this.textWrapWidth = textBgWidth - (textMarginX * 2);
 
-                // Use properly quoted font name as required by Phaser
-                const fontFamily = this.fontLoaded ? '"Press Start 2P"' : 'monospace';
+                // Use properly quoted font name with Google Fonts first, local fallback, then monospace
+                const fontFamily = '"Press Start 2P", "Press Start 2P Local", monospace';
                 const fontSize = this.fontLoaded ? '24px' : '28px'; // Pixel fonts work best at certain sizes
 
-                console.log('Creating text with font:', fontFamily, 'size:', fontSize);
+                console.log('Creating text with font stack:', fontFamily, 'size:', fontSize);
 
                 this.storyText = this.add.text(
                     centerX - (textBgWidth / 2) + textMarginX,
@@ -349,7 +376,7 @@
 
                 // Add continue prompt (initially hidden)
                 this.continuePrompt = this.add.text(centerX, textBgY + (textBgHeight / 2) + 40, 'Press SPACE or CLICK to continue...', {
-                    fontFamily: fontFamily,
+                    fontFamily: '"Press Start 2P", "Press Start 2P Local", monospace',
                     fontSize: this.fontLoaded ? '18px' : '20px',
                     fill: '#888888',
                     align: 'center'
@@ -592,6 +619,10 @@
                 this.gameOverPlayButton = null;
                 this.fontLoaded = false;
                 this.typewriterSounds = [];
+                this.gameOverMessages = [
+                    "The darkness engulfs you...",
+                    "As you lose consciousness, odd runes twirl around your head: KA JI SU LI"
+                ];
 
                 // Horse state
                 this.horse = null;
@@ -674,24 +705,12 @@
                     this.load.image(`horse_egg_${i}`, `assets/horse_egg_${i}.png`);
                 }
 
-                // Load the custom font using FontFace API
+                // Load the custom font - Simplified for Google Fonts + local fallback
                 this.load.addListener('complete', () => {
-                    console.log('Game assets loaded, now loading font...');
+                    console.log('Game assets loaded, font should be available from Google Fonts...');
 
-                    // Create FontFace instance for Press Start 2P
-                    const fontFace = new FontFace('Press Start 2P', 'url(assets/PressStart2P-Regular.ttf)');
-
-                    // Load the font
-                    fontFace.load().then((loadedFont) => {
-                        // Add to document fonts
-                        document.fonts.add(loadedFont);
-                        this.fontLoaded = true;
-                        console.log('Font loaded successfully in GameScreen!');
-
-                    }).catch((error) => {
-                        console.error('Font failed to load in GameScreen:', error);
-                        this.fontLoaded = false;
-                    });
+                    // Since we're using Google Fonts, the font should be readily available
+                    this.fontLoaded = true;
                 });
 
                 // Collect available typewriter sounds
@@ -1250,22 +1269,72 @@
             }
 
             animateScoreChange() {
-                // Scale animation for all current score digits
+                // Scale animation for all current score digits - SNAPPIER!
                 this.scoreDigits.forEach(digit => {
                     this.tweens.add({
                         targets: digit,
                         scaleX: 1.2,
                         scaleY: 1.2,
-                        duration: 200,
+                        duration: 120, // Reduced from 200ms for snappier feel
                         yoyo: true,
                         ease: 'Back.easeOut'
                     });
                 });
             }
 
-            createGameOverTypewriter(message, x, y, callback) {
-                const fontFamily = this.fontLoaded ? '"Press Start 2P"' : 'monospace';
+            // Reusable word wrapping function that both Story and Game Over can use
+            wrapText(text, fontFamily, fontSize, maxWidth, scene) {
+                const words = text.split(' ');
+                const lines = [];
+                let currentLine = '';
+
+                // Create a temporary text object to measure word widths
+                const measureText = scene.add.text(0, 0, '', {
+                    fontFamily: fontFamily,
+                    fontSize: fontSize
+                });
+
+                for (let i = 0; i < words.length; i++) {
+                    const word = words[i];
+                    const testLine = currentLine ? `${currentLine} ${word}` : word;
+
+                    // Measure the width of this test line
+                    measureText.setText(testLine);
+                    const lineWidth = measureText.width;
+
+                    if (lineWidth <= maxWidth || currentLine === '') {
+                        // Word fits on current line, OR this is the first word on a line (force it even if too long)
+                        currentLine = testLine;
+                    } else {
+                        // Word doesn't fit, start new line
+                        lines.push(currentLine);
+                        currentLine = word;
+                    }
+                }
+
+                // Add the last line if it exists
+                if (currentLine) {
+                    lines.push(currentLine);
+                }
+
+                measureText.destroy(); // Clean up
+
+                // Join lines with newline characters
+                return lines.join('\n');
+            }
+
+            createGameOverTypewriter(x, y, callback) {
+                // Select random message from array
+                const message = Phaser.Utils.Array.GetRandom(this.gameOverMessages);
+
+                const fontFamily = '"Press Start 2P", "Press Start 2P Local", monospace';
                 const fontSize = this.fontLoaded ? '32px' : '36px';
+
+                // Calculate wrap width - use 80% of game width for safety
+                const wrapWidth = this.gameWidth * 0.8;
+
+                // Apply word wrapping using our reusable function
+                const wrappedMessage = this.wrapText(message, fontFamily, fontSize, wrapWidth, this);
 
                 // Create text object
                 this.gameOverMessage = this.add.text(x, y, '', {
@@ -1283,12 +1352,12 @@
                 const typewriterSpeed = 80; // Slightly slower for dramatic effect
 
                 const typeNextChar = () => {
-                    if (charIndex < message.length) {
-                        currentText += message[charIndex];
+                    if (charIndex < wrappedMessage.length) {
+                        currentText += wrappedMessage[charIndex];
                         this.gameOverMessage.setText(currentText);
 
-                        // Play typewriter sound for visible characters (not spaces)
-                        if (message[charIndex] !== ' ' && this.typewriterSounds.length > 0) {
+                        // Play typewriter sound for visible characters (not spaces or newlines)
+                        if (wrappedMessage[charIndex] !== ' ' && wrappedMessage[charIndex] !== '\n' && this.typewriterSounds.length > 0) {
                             const randomSound = Phaser.Utils.Array.GetRandom(this.typewriterSounds);
                             this.sound.play(randomSound, { volume: 0.3 });
                         }
@@ -2255,14 +2324,13 @@
 
                 // Create typewriter game over message
                 this.createGameOverTypewriter(
-                    'The darkness engulfs you...',
                     this.gameWidth / 2,
                     this.gameHeight / 2,
                     () => {
-                        // After message is complete, show play button
+                        // After message is complete, show play button (moved lower)
                         this.createGameOverPlayButton(
                             this.gameWidth / 2,
-                            this.gameHeight / 2 + 120
+                            this.gameHeight / 2 + 200 // Moved down from +120 to +200
                         );
                     }
                 );
