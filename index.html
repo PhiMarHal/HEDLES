@@ -633,6 +633,13 @@
                 this.horseVelocityX = 0; // Current X velocity
                 this.horseVelocityY = 0; // Current Y velocity
                 this.pendingEggSpawn = false; // Flag to indicate an egg should be spawned
+
+                // Loading state
+                this.loadingText = null;
+                this.loadingTween = null;
+
+                // Show loading message immediately when scene starts
+                this.showLoadingMessage();
             }
 
             preload() {
@@ -921,6 +928,122 @@
                         volume: 0.5
                     });
                     this.backgroundMusic.play();
+                }
+
+                // Hide loading message after a short delay to ensure everything is ready
+                this.time.delayedCall(100, () => {
+                    this.hideLoadingMessage();
+                });
+            }
+
+            showLoadingMessage() {
+                // Set black background immediately
+                this.cameras.main.setBackgroundColor(0x000000);
+
+                // Create loading text using system font initially
+                this.loadingText = this.add.text(
+                    this.gameWidth / 2,
+                    this.gameHeight / 2,
+                    'ENTERING THE TOWER...',
+                    {
+                        fontFamily: 'monospace',
+                        fontSize: '32px',
+                        fill: '#ffffff',
+                        align: 'center'
+                    }
+                );
+                this.loadingText.setOrigin(0.5);
+                this.loadingText.setDepth(1000); // Very high depth to be above everything
+                this.loadingText.setAlpha(0);
+
+                // Fade in and create pulsing animation
+                this.tweens.add({
+                    targets: this.loadingText,
+                    alpha: 1,
+                    duration: 500,
+                    ease: 'Power2',
+                    onComplete: () => {
+                        // Start pulsing animation
+                        this.loadingTween = this.tweens.add({
+                            targets: this.loadingText,
+                            alpha: 0.4,
+                            duration: 1000,
+                            yoyo: true,
+                            repeat: -1,
+                            ease: 'Sine.easeInOut'
+                        });
+                    }
+                });
+
+                // Try to upgrade to Press Start 2P once it's available
+                this.tryUpgradeLoadingFont();
+            }
+
+            tryUpgradeLoadingFont() {
+                // Check if font is already available
+                const fontLoaded = document.fonts.check('32px "Press Start 2P"');
+
+                if (fontLoaded && this.loadingText && this.loadingText.active) {
+                    // Font is ready, upgrade immediately
+                    this.loadingText.setFontFamily('"Press Start 2P", "Press Start 2P Local", monospace');
+                    return;
+                }
+
+                // Font not ready, wait for it
+                const forceLoadFont = () => {
+                    // Create a hidden test element to force font rendering
+                    const testElement = document.createElement('div');
+                    testElement.style.fontFamily = '"Press Start 2P", monospace';
+                    testElement.style.fontSize = '32px';
+                    testElement.style.position = 'absolute';
+                    testElement.style.visibility = 'hidden';
+                    testElement.style.left = '-9999px';
+                    testElement.textContent = 'ENTERING THE TOWER...';
+                    document.body.appendChild(testElement);
+
+                    // Wait for fonts to be ready
+                    document.fonts.ready.then(() => {
+                        // Small delay to ensure the font is actually rendered
+                        setTimeout(() => {
+                            // Check if font is available
+                            const fontNowLoaded = document.fonts.check('32px "Press Start 2P"');
+
+                            if (fontNowLoaded && this.loadingText && this.loadingText.active) {
+                                // Upgrade the loading text font
+                                this.loadingText.setFontFamily('"Press Start 2P", "Press Start 2P Local", monospace');
+                            }
+
+                            // Clean up test element
+                            document.body.removeChild(testElement);
+                        }, 50);
+                    }).catch((error) => {
+                        console.warn('Font loading failed for loading message:', error);
+                        document.body.removeChild(testElement);
+                    });
+                };
+
+                // Start the font loading process
+                forceLoadFont();
+            }
+
+            hideLoadingMessage() {
+                if (this.loadingText) {
+                    // Stop pulsing animation
+                    if (this.loadingTween) {
+                        this.loadingTween.destroy();
+                    }
+
+                    // Fade out and destroy
+                    this.tweens.add({
+                        targets: this.loadingText,
+                        alpha: 0,
+                        duration: 500,
+                        ease: 'Power2',
+                        onComplete: () => {
+                            this.loadingText.destroy();
+                            this.loadingText = null;
+                        }
+                    });
                 }
             }
 
