@@ -525,7 +525,7 @@
                 this.HEDLE_MOVE_TIME = 2000;
                 this.HEDLE_WAIT_TIME = 1000;
                 this.HEDLE_WALK_SPRITE_INTERVAL = 400;
-                this.MINIMUM_SPAWN_DELAY = 400;
+                this.MINIMUM_SPAWN_DELAY = 500;
                 this.EGG_GROWTH_TIME = 4000; // 4 seconds to hatch
                 this.MIN_HEAD_DAMAGE_SPEED = 50; // Minimum speed to damage hedles
                 this.BAT_SPEED = 200; // Speed of bat flying across screen
@@ -534,6 +534,12 @@
                 this.WATER_LINE_LENGTH = 3200; // Length of water spell line (much longer!)
                 this.MULTI_SHOT_COUNT = 8; // Number of shots for multi spell
                 this.MULTI_SHOT_DELAY = 250; // Delay between multi shots
+
+                // Horse configuration
+                this.HORSE_SIZE = 120; // Size of horse sprite
+                this.HORSE_SPEED = 150; // Horse walking speed
+                this.HORSE_WALK_FRAME_DURATION = 200; // Duration of each walk frame
+                this.HORSE_LAY_FRAME_DURATION = 200; // Duration of each lay frame
 
                 // Sprite counts
                 this.HEAD_COUNT = 119;
@@ -554,8 +560,8 @@
                 this.cannonChargeStart = 0;
                 this.cannonCooldownStart = 0;
                 this.lastPointerPosition = { x: 450, y: 400 };
-                this.currentSpawnDelay = 4000; // Start with 4 second delay
-                this.spawnSpeedMultiplier = 0.9; // Make 10% faster each time
+                this.currentSpawnDelay = 4000;
+                this.spawnSpeedMultiplier = 0.96;
                 this.currentBatDelay = 8000; // First bat after 8 seconds
                 this.batDelayIncrement = 0; // Add 0 seconds between each bat
                 this.spellSlots = [null, null, null, null]; // 4 spell slots
@@ -570,6 +576,15 @@
                 this.currentFadeOpacity = 0; // Current screen fade opacity
                 this.targetFadeOpacity = 0;  // Target screen fade opacity
                 this.fadeTransitionSpeed = 1.0; // How fast to transition (higher = faster)
+
+                // Horse state
+                this.horse = null;
+                this.horseWalkFrame = 0;
+                this.horseIsLaying = false;
+                this.horseAngle = 0; // Current movement direction in radians
+                this.horseVelocityX = 0; // Current X velocity
+                this.horseVelocityY = 0; // Current Y velocity
+                this.pendingEggSpawn = false; // Flag to indicate an egg should be spawned
             }
 
             preload() {
@@ -624,6 +639,15 @@
                     this.load.image(`digit_${i}`, `assets/digit_${i}.png`);
                 }
 
+                // Load horse sprites
+                for (let i = 1; i <= 8; i++) {
+                    this.load.image(`horse_walk_${i}`, `assets/horse_walk_${i}.png`);
+                }
+
+                for (let i = 1; i <= 3; i++) {
+                    this.load.image(`horse_egg_${i}`, `assets/horse_egg_${i}.png`);
+                }
+
                 // Add error handler for missing sprites
                 this.load.on('loaderror', (file) => {
                     console.warn('Missing asset:', file.key);
@@ -663,6 +687,18 @@
                         graphics.fillStyle(0x000000, 1);
                         graphics.fillRect(20, 30, 24, 36);
                         graphics.generateTexture(file.key, 64, 96);
+                    } else if (file.key.startsWith('horse_walk_')) {
+                        graphics.fillStyle(0x8B4513, 1); // Brown for horse
+                        graphics.fillRect(0, 0, 120, 80);
+                        graphics.fillStyle(0x000000, 1);
+                        graphics.fillRect(20, 60, 80, 20); // Legs
+                        graphics.generateTexture(file.key, 120, 80);
+                    } else if (file.key.startsWith('horse_egg_')) {
+                        graphics.fillStyle(0x8B4513, 1); // Brown for horse
+                        graphics.fillRect(0, 0, 120, 80);
+                        graphics.fillStyle(0xFFFFFF, 1); // White for egg
+                        graphics.fillEllipse(60, 70, 20, 15);
+                        graphics.generateTexture(file.key, 120, 80);
                     }
 
                     graphics.destroy();
@@ -696,8 +732,8 @@
                 this.cameras.main.setBackgroundColor(0x2c3e50);
 
                 // Tile the background texture
-                const bgWidth = 512;
-                const bgHeight = 512;
+                const bgWidth = 900;
+                const bgHeight = 1024;
                 const tilesX = Math.ceil(this.gameWidth / bgWidth);
                 const tilesY = Math.ceil(this.gameHeight / bgHeight);
 
@@ -723,6 +759,9 @@
                 this.cannon.setDisplaySize(this.CANNON_SIZE, this.CANNON_SIZE * 2);
                 this.cannon.setOrigin(0.5, 0.5);
                 this.cannon.setDepth(200); // Above fade overlay
+
+                // Create horse
+                this.createHorse();
 
                 // Set up collision detection with condition check
                 this.physics.add.overlap(this.heads, this.hedles, this.hitHedle, this.canHitHedle, this);
@@ -786,7 +825,7 @@
                 this.createSpellInterface();
 
                 // Start spawning with first egg immediately
-                this.spawnEgg();
+                this.triggerEggSpawn();
                 this.scheduleNextEgg();
 
                 // Schedule first bat
@@ -800,6 +839,196 @@
                     });
                     this.backgroundMusic.play();
                 }
+            }
+
+            createHorse() {
+                // Start horse in spawn area (where eggs used to spawn)
+                const spawnX = Phaser.Math.Between(150, this.gameWidth - 150);
+                const spawnY = Phaser.Math.Between(50, 150);
+
+                this.horse = this.add.sprite(spawnX, spawnY, 'horse_walk_1');
+                this.horse.setDisplaySize(this.HORSE_SIZE, this.HORSE_SIZE);
+                this.horse.setDepth(100); // Above background, below UI
+
+                // Horse movement state
+                this.horseWalkFrame = 0;
+                this.horseIsLaying = false;
+                this.horseAngle = Phaser.Math.FloatBetween(0, Math.PI * 2); // Random initial direction
+                this.horseVelocityX = Math.cos(this.horseAngle) * this.HORSE_SPEED;
+                this.horseVelocityY = Math.sin(this.horseAngle) * this.HORSE_SPEED;
+
+                // Start horse walking animation
+                this.startHorseWalking();
+            }
+
+            startHorseWalking() {
+                // Start walking animation
+                this.horseWalkTimer = this.time.addEvent({
+                    delay: this.HORSE_WALK_FRAME_DURATION,
+                    callback: () => {
+                        if (!this.horseIsLaying && this.horse && this.horse.active) {
+                            this.horseWalkFrame = (this.horseWalkFrame % 8) + 1;
+                            this.horse.setTexture(`horse_walk_${this.horseWalkFrame}`);
+                        }
+                    },
+                    loop: true
+                });
+            }
+
+            updateHorseMovement() {
+                if (!this.horse || !this.horse.active || this.horseIsLaying) return;
+
+                // Move horse in current direction
+                this.horse.x += this.horseVelocityX * (1 / 60); // Assuming 60 FPS
+                this.horse.y += this.horseVelocityY * (1 / 60);
+
+                // Keep horse within spawn area bounds and bounce off walls
+                const margin = 60; // Keep horse away from edges
+                let directionChanged = false;
+
+                if (this.horse.x < margin) {
+                    this.horse.x = margin;
+                    this.horseVelocityX = Math.abs(this.horseVelocityX); // Bounce right
+                    directionChanged = true;
+                } else if (this.horse.x > this.gameWidth - margin) {
+                    this.horse.x = this.gameWidth - margin;
+                    this.horseVelocityX = -Math.abs(this.horseVelocityX); // Bounce left
+                    directionChanged = true;
+                }
+
+                if (this.horse.y < 30) {
+                    this.horse.y = 30;
+                    this.horseVelocityY = Math.abs(this.horseVelocityY); // Bounce down
+                    directionChanged = true;
+                } else if (this.horse.y > 200) {
+                    this.horse.y = 200;
+                    this.horseVelocityY = -Math.abs(this.horseVelocityY); // Bounce up
+                    directionChanged = true;
+                }
+
+                // Update angle if direction changed due to bouncing
+                if (directionChanged) {
+                    this.horseAngle = Math.atan2(this.horseVelocityY, this.horseVelocityX);
+                }
+
+                // Flip sprite based on direction (sprites are oriented left by default)
+                // So flip when going right (positive X velocity)
+                this.horse.setFlipX(this.horseVelocityX > 0);
+            }
+
+            triggerEggSpawn() {
+                if (this.gameOver || !this.horse || !this.horse.active) return;
+
+                // Set flag to spawn egg
+                this.pendingEggSpawn = true;
+
+                // Start laying animation
+                this.startHorseLayingAnimation();
+            }
+
+            startHorseLayingAnimation() {
+                if (this.horseIsLaying) return;
+
+                this.horseIsLaying = true;
+
+                // Stop walking animation
+                if (this.horseWalkTimer) {
+                    this.horseWalkTimer.paused = true;
+                }
+
+                let layFrame = 1;
+                const layFrames = 3;
+
+                // Animate through laying frames
+                const layAnimation = () => {
+                    if (layFrame <= layFrames && this.horse && this.horse.active) {
+                        this.horse.setTexture(`horse_egg_${layFrame}`);
+
+                        // Spawn egg on frame 2 (middle of animation)
+                        if (layFrame === 2 && this.pendingEggSpawn) {
+                            this.spawnEggAtHorse();
+                            this.pendingEggSpawn = false;
+                        }
+
+                        layFrame++;
+
+                        if (layFrame <= layFrames) {
+                            this.time.delayedCall(this.HORSE_LAY_FRAME_DURATION, layAnimation);
+                        } else {
+                            // Animation complete, return to walking
+                            this.endHorseLayingAnimation();
+                        }
+                    }
+                };
+
+                layAnimation();
+            }
+
+            endHorseLayingAnimation() {
+                this.horseIsLaying = false;
+
+                // Return to first walk frame
+                this.horseWalkFrame = 1;
+                if (this.horse && this.horse.active) {
+                    this.horse.setTexture(`horse_walk_${this.horseWalkFrame}`);
+                }
+
+                // Pick a new random direction after laying egg
+                this.horseAngle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+                this.horseVelocityX = Math.cos(this.horseAngle) * this.HORSE_SPEED;
+                this.horseVelocityY = Math.sin(this.horseAngle) * this.HORSE_SPEED;
+
+                // Resume walking animation
+                if (this.horseWalkTimer) {
+                    this.horseWalkTimer.paused = false;
+                }
+            }
+
+            spawnEggAtHorse() {
+                if (this.gameOver || !this.horse || !this.horse.active) return;
+
+                // Clamp horse position to valid spawn area
+                const spawnX = Phaser.Math.Clamp(this.horse.x, 150, this.gameWidth - 150);
+                const spawnY = this.horse.y + 20; // Slightly below horse
+
+                const egg = this.add.sprite(spawnX, spawnY, 'egg');
+                egg.setDisplaySize(this.EGG_SIZE, this.EGG_SIZE);
+
+                // Store which hedle this will become
+                egg.hedleId = Phaser.Math.Between(1, this.HEDLE_COUNT).toString().padStart(4, '0');
+                egg.growthTimer = 0;
+
+                // Add to eggs array for tracking
+                this.eggs.push(egg);
+
+                // Grow the egg over 4 seconds
+                const growthSteps = 4;
+                for (let i = 1; i <= growthSteps; i++) {
+                    const timer = this.time.delayedCall(i * 1000, () => {
+                        if (egg && egg.active && !this.gameOver) {
+                            const newSize = this.EGG_SIZE * (1 + i * 0.25);
+                            egg.setDisplaySize(newSize, newSize);
+
+                            // Add pulsing effect as it grows
+                            this.tweens.add({
+                                targets: egg,
+                                scaleX: egg.scaleX * 1.1,
+                                scaleY: egg.scaleY * 1.1,
+                                duration: 200,
+                                yoyo: true,
+                                ease: 'Sine.easeInOut'
+                            });
+                        }
+                    });
+                    egg[`growthTimer${i}`] = timer;
+                }
+
+                // Hatch after 4 seconds
+                egg.hatchTimer = this.time.delayedCall(this.EGG_GROWTH_TIME, () => {
+                    if (egg && egg.active && !this.gameOver) {
+                        this.hatchEgg(egg);
+                    }
+                });
             }
 
             createSpellInterface() {
@@ -1438,59 +1667,13 @@
                 if (this.gameOver) return;
 
                 this.eggSpawnTimer = this.time.delayedCall(this.currentSpawnDelay, () => {
-                    this.spawnEgg();
+                    this.triggerEggSpawn();
                     // Make next spawn 10% faster
                     this.currentSpawnDelay *= this.spawnSpeedMultiplier;
                     // Minimum spawn delay
                     this.currentSpawnDelay = Math.max(this.MINIMUM_SPAWN_DELAY, this.currentSpawnDelay);
                     // Schedule next egg
                     this.scheduleNextEgg();
-                });
-            }
-
-            spawnEgg() {
-                if (this.gameOver) return;
-
-                const spawnX = Phaser.Math.Between(150, this.gameWidth - 150); // Keep away from edges
-                const spawnY = Phaser.Math.Between(50, 150); // Random Y near top
-
-                const egg = this.add.sprite(spawnX, spawnY, 'egg');
-                egg.setDisplaySize(this.EGG_SIZE, this.EGG_SIZE);
-
-                // Store which hedle this will become
-                egg.hedleId = Phaser.Math.Between(1, this.HEDLE_COUNT).toString().padStart(4, '0');
-                egg.growthTimer = 0;
-
-                // Add to eggs array for tracking
-                this.eggs.push(egg);
-
-                // Grow the egg over 4 seconds
-                const growthSteps = 4;
-                for (let i = 1; i <= growthSteps; i++) {
-                    const timer = this.time.delayedCall(i * 1000, () => {
-                        if (egg && egg.active && !this.gameOver) {
-                            const newSize = this.EGG_SIZE * (1 + i * 0.25);
-                            egg.setDisplaySize(newSize, newSize);
-
-                            // Add pulsing effect as it grows
-                            this.tweens.add({
-                                targets: egg,
-                                scaleX: egg.scaleX * 1.1,
-                                scaleY: egg.scaleY * 1.1,
-                                duration: 200,
-                                yoyo: true,
-                                ease: 'Sine.easeInOut'
-                            });
-                        }
-                    });
-                    egg[`growthTimer${i}`] = timer;
-                }
-
-                // Hatch after 4 seconds
-                egg.hatchTimer = this.time.delayedCall(this.EGG_GROWTH_TIME, () => {
-                    if (egg && egg.active && !this.gameOver) {
-                        this.hatchEgg(egg);
-                    }
                 });
             }
 
@@ -1825,6 +2008,7 @@
                 if (this.eggSpawnTimer) this.eggSpawnTimer.destroy();
                 if (this.chargeTimer) this.chargeTimer.destroy();
                 if (this.batTimer) this.batTimer.destroy();
+                if (this.horseWalkTimer) this.horseWalkTimer.destroy();
 
                 // Stop all hedles
                 this.hedles.children.entries.forEach(hedle => {
@@ -1862,6 +2046,9 @@
                 // Hide score digits
                 this.scoreDigits.forEach(digit => digit.setVisible(false));
 
+                // Hide horse
+                if (this.horse) this.horse.setVisible(false);
+
                 this.add.text(this.gameWidth / 2, this.gameHeight / 2, 'GAME OVER', {
                     fontSize: '96px',
                     fill: '#ff0000'
@@ -1891,6 +2078,9 @@
 
             update(time, delta) {
                 if (this.gameOver) return;
+
+                // Update horse movement
+                this.updateHorseMovement();
 
                 // Update cooldown and manual firing
                 if (this.cannonOnCooldown) {
