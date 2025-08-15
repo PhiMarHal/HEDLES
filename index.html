@@ -563,7 +563,7 @@
                 this.currentSpawnDelay = 4000;
                 this.spawnSpeedMultiplier = 0.96;
                 this.currentBatDelay = 8000; // First bat after 8 seconds
-                this.batDelayIncrement = 0; // Add 0 seconds between each bat
+                this.batDelayIncrement = 200; // Add 200ms between each bat (should prevent infinite game)
                 this.spellSlots = [null, null, null, null]; // 4 spell slots
                 this.selectedSpell = null; // Currently selected spell
                 this.isMultiShotting = false; // Track multi-shot state
@@ -853,12 +853,25 @@
                 // Horse movement state
                 this.horseWalkFrame = 0;
                 this.horseIsLaying = false;
-                this.horseAngle = Phaser.Math.FloatBetween(0, Math.PI * 2); // Random initial direction
+                this.horseAngle = this.getRandomHorseDirection(); // Random initial direction
                 this.horseVelocityX = Math.cos(this.horseAngle) * this.HORSE_SPEED;
                 this.horseVelocityY = Math.sin(this.horseAngle) * this.HORSE_SPEED;
 
                 // Start horse walking animation
                 this.startHorseWalking();
+            }
+
+            getRandomHorseDirection() {
+                // Pick either left or right direction, each with 45° spread
+                const goingLeft = Phaser.Math.Between(0, 1) === 0;
+
+                if (goingLeft) {
+                    // Left direction: 180° ± 22.5° (157.5° to 202.5°)
+                    return Phaser.Math.FloatBetween(157.5 * Math.PI / 180, 202.5 * Math.PI / 180);
+                } else {
+                    // Right direction: 0° ± 22.5° (-22.5° to 22.5°)
+                    return Phaser.Math.FloatBetween(-22.5 * Math.PI / 180, 22.5 * Math.PI / 180);
+                }
             }
 
             startHorseWalking() {
@@ -974,7 +987,7 @@
                 }
 
                 // Pick a new random direction after laying egg
-                this.horseAngle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+                this.horseAngle = this.getRandomHorseDirection();
                 this.horseVelocityX = Math.cos(this.horseAngle) * this.HORSE_SPEED;
                 this.horseVelocityY = Math.sin(this.horseAngle) * this.HORSE_SPEED;
 
@@ -987,9 +1000,27 @@
             spawnEggAtHorse() {
                 if (this.gameOver || !this.horse || !this.horse.active) return;
 
-                // Clamp horse position to valid spawn area
-                const spawnX = Phaser.Math.Clamp(this.horse.x, 150, this.gameWidth - 150);
-                const spawnY = this.horse.y + 20; // Slightly below horse
+                // Calculate egg position at horse's rear
+                // Horse sprites are oriented left by default, so rear is to the right
+                // If horse is flipped (facing right), rear is to the left
+                const horseIsFlipped = this.horse.flipX;
+                const rearOffsetDistance = 40; // Distance behind the horse
+
+                let spawnX, spawnY;
+
+                if (horseIsFlipped) {
+                    // Horse facing right, rear is to the left
+                    spawnX = this.horse.x - rearOffsetDistance;
+                } else {
+                    // Horse facing left, rear is to the right  
+                    spawnX = this.horse.x + rearOffsetDistance;
+                }
+
+                spawnY = this.horse.y + 10; // Slightly below horse center
+
+                // Clamp to valid spawn area
+                spawnX = Phaser.Math.Clamp(spawnX, 150, this.gameWidth - 150);
+                spawnY = Phaser.Math.Clamp(spawnY, 50, 200);
 
                 const egg = this.add.sprite(spawnX, spawnY, 'egg');
                 egg.setDisplaySize(this.EGG_SIZE, this.EGG_SIZE);
@@ -2010,6 +2041,13 @@
                 if (this.batTimer) this.batTimer.destroy();
                 if (this.horseWalkTimer) this.horseWalkTimer.destroy();
 
+                // Stop horse movement and animation (but keep it visible)
+                if (this.horse && this.horse.active) {
+                    this.horseVelocityX = 0;
+                    this.horseVelocityY = 0;
+                    this.horseIsLaying = false;
+                }
+
                 // Stop all hedles
                 this.hedles.children.entries.forEach(hedle => {
                     if (hedle.body) hedle.body.setVelocity(0, 0);
@@ -2045,9 +2083,6 @@
 
                 // Hide score digits
                 this.scoreDigits.forEach(digit => digit.setVisible(false));
-
-                // Hide horse
-                if (this.horse) this.horse.setVisible(false);
 
                 this.add.text(this.gameWidth / 2, this.gameHeight / 2, 'GAME OVER', {
                     fontSize: '96px',
