@@ -159,12 +159,22 @@
 
                 // Story text (themed around the game)
                 this.storyLines = [
-                    "In the mystical realm of Hedonia, where time flows like honey through ancient trees.",
-                    "The peaceful Hedles lived in harmony, their round forms bobbing gently in meadows.",
-                    "But darkness crept from the void, bringing with it an endless hunger.",
-                    "Only the legendary cannon of the ancients could save them from certain doom.",
-                    "You are the chosen guardian, wielder of heads and master of magical spells.",
-                    "Will you defend the realm and protect the innocent Hedles from extinction?"
+                    "Behold, the realm of Forgotten Runes. A world filled with magic and wonders.",
+                    "One mystery lies above all. Shrouded in a tower whose name was lost to time.",
+                    "Nobody knows what goes on in the Secret Tower.",
+                    "Nobody, except the Apprentice.",
+                    "Every full moon, a new Apprentice is chosen. They set out for the tower. They're never to be seen again.",
+                    "Today, you are the chosen Apprentice.",
+                    "The doors of the Secret Tower open in front of you.",
+                    "As you step inside, runes float in front of your eyes. They spell the truth of this place.",
+                    "Wizards are not born. They are made.",
+                    "All begins with the Donkeyhorse.",
+                    "This magical beast roams the tower halls, laying eggs as it does.",
+                    "The eggs hatch into bodies, without heads. Without souls. Mindless creatures, called Hedles.",
+                    "As the Apprentice, your role is to attach heads to the Hedles.",
+                    "Thus, a Wizard is born.",
+                    "The Hedles grow fast. To keep up with them, you must use the Headcannon.",
+                    "Aim true, Apprentice. The future of all wizardy relies on you."
                 ];
 
                 this.currentLineIndex = 0;
@@ -309,15 +319,15 @@
                 this.textBackground.setDisplaySize(textBgWidth, textBgHeight);
 
                 // Create text object for story - UPDATED MARGINS
-                const textMarginX = textBgWidth * 0.1; // 10% margin from left (FIXED)
-                const textMarginY = textBgHeight * 0.18; // 18% margin from top (FIXED)
+                const textMarginX = textBgWidth * 0.1; // margin from left
+                const textMarginY = textBgHeight * 0.22; // margin from top
 
                 // Store the wrap width for later use
                 this.textWrapWidth = textBgWidth - (textMarginX * 2);
 
                 // Use properly quoted font name as required by Phaser
                 const fontFamily = this.fontLoaded ? '"Press Start 2P"' : 'monospace';
-                const fontSize = this.fontLoaded ? '28px' : '32px'; // Pixel fonts work best at certain sizes
+                const fontSize = this.fontLoaded ? '24px' : '28px'; // Pixel fonts work best at certain sizes
 
                 console.log('Creating text with font:', fontFamily, 'size:', fontSize);
 
