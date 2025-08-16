@@ -806,6 +806,43 @@
                 });
             }
 
+            createImpactSparks(x, y) {
+                // Create individual spark particles manually instead of using explode()
+                const numSparks = 12;
+
+                for (let i = 0; i < numSparks; i++) {
+                    // Random angle for each spark
+                    const angle = (Math.PI * 2 * i) / numSparks + Phaser.Math.FloatBetween(-0.3, 0.3);
+                    const speed = Phaser.Math.Between(200, 400);
+
+                    // Create individual spark
+                    const spark = this.add.image(x, y, 'golden_dot');
+                    spark.setScale(1.5);
+                    spark.setDepth(300);
+
+                    // Calculate velocity
+                    const velX = Math.cos(angle) * speed;
+                    const velY = Math.sin(angle) * speed;
+
+                    // Animate the spark
+                    this.tweens.add({
+                        targets: spark,
+                        x: x + velX * 0.8, // Move outward
+                        y: y + velY * 0.8 + 80, // Move outward + gravity effect
+                        scaleX: 0.1,
+                        scaleY: 0.1,
+                        alpha: 0,
+                        duration: 1000,
+                        ease: 'Quad.easeOut',
+                        onComplete: () => {
+                            if (spark && spark.active) {
+                                spark.destroy();
+                            }
+                        }
+                    });
+                }
+            }
+
             showLoadingMessage() {
                 // Set black background immediately
                 this.cameras.main.setBackgroundColor(0x000000);
@@ -1431,6 +1468,13 @@
             hitHedle(head, hedle) {
                 if (hedle.isDying) return;
 
+                // Calculate the actual collision point between head and hedle
+                const impactX = (head.x + hedle.x) / 2;
+                const impactY = (head.y + hedle.y) / 2;
+
+                // Create impact sparks at the collision point
+                this.createImpactSparks(impactX, impactY);
+
                 if (head.spellType || head.multiVisual) {
                     head.hasHitHedle = true;
                 }
@@ -1480,7 +1524,7 @@
                     targets: hedle,
                     rotation: (Math.PI / 2) * fallDirection,
                     alpha: 0,
-                    duration: 1000,
+                    duration: 400,
                     onComplete: () => hedle.destroy()
                 });
 
