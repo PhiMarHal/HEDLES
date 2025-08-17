@@ -574,6 +574,44 @@
                 this.targetFadeOpacity = 0;
                 this.fadeTransitionSpeed = 1.0;
                 this.fadeUpdateCounter = 0;
+                this.activeHedleMessages = 0;
+                this.floatingTexts = [];
+                this.MAX_HEDLE_MESSAGES = 8;
+
+                // Message arrays
+                this.batMessages = [
+                    "Don't shoot me!",
+                    "I'm friendly!",
+                    "Tap my book!",
+                    "Spells here!",
+                    "Magic delivery!",
+                    "Hedles feel no pain",
+                    "Tap the tome",
+                    "Keep your ears open"
+                ];
+
+                this.hedleMessages = [
+                    "orange turn",
+                    "wen tge",
+                    "yellow peasant",
+                    "ten pair",
+                    "twelve donate",
+                    "gm",
+                    "cyan play",
+                    "three stars",
+                    "how to get role",
+                    "hey sir",
+                    "purple mystery",
+                    "pink capable",
+                    "brans",
+                    "umm",
+                    "hug me",
+                    "blue crew",
+                    "beige hero",
+                    "eleven mutual",
+                    "green pudding",
+                    "nine list"
+                ];
 
                 // Game over state
                 this.gameOverMessage = null;
@@ -582,10 +620,13 @@
                 this.typewriterSounds = [];
                 this.gameOverMessages = [
                     "The darkness engulfs you...",
-                    "As you lose consciousness, odd runes twirl around your head: KA JI SU LI"
+                    "As you lose consciousness, odd runes twirl around your head: KA JI SU LI",
+                    "Bats don’t need HED, they just need the Apprentice’s love. Poke them gently, and they’ll thank you in silence.",
+                    "WEN TGE",
+                    "Some say they hear screams coming from the secret tower , but somehow seem strangely muffled, as if they are coming from closed mouths..."
                 ];
 
-                // Horse state - CRITICAL: Keep all horse state exactly as it was!
+                // Horse state
                 this.horse = null;
                 this.horseWalkFrame = 0;
                 this.horseIsLaying = false;
@@ -1169,6 +1210,8 @@
                 this.hedles.add(hedle);
                 this.createBobAnimation(hedle);
                 this.startMovementCycle(hedle);
+                hedle.isHedle = true; // Mark as hedle for message tracking
+                this.scheduleHedleMessage(hedle);
 
                 const index = this.eggs.indexOf(egg);
                 if (index > -1) {
@@ -1472,6 +1515,67 @@
                 return speed >= this.MIN_HEAD_DAMAGE_SPEED && !hedle.isDying;
             }
 
+            // Unified hedle death method
+            killHedle(hedle, impactX = null, impactY = null) {
+                if (hedle.isDying) return;
+
+                // Create impact sparks at specified location or hedle center
+                const sparkX = impactX !== null ? impactX : hedle.x;
+                const sparkY = impactY !== null ? impactY : hedle.y;
+                this.createImpactSparks(sparkX, sparkY);
+
+                hedle.isDying = true;
+
+                const owwSounds = ['oww_1', 'oww_2', 'oww_3', 'oww_4'];
+                const randomOww = Phaser.Utils.Array.GetRandom(owwSounds);
+                if (this.cache.audio.exists(randomOww)) {
+                    this.sound.play(randomOww);
+                }
+
+                // Cleanup hedle message timer and freeze floating texts
+                if (hedle.messageTimer) {
+                    hedle.messageTimer.destroy();
+                }
+                if (this.floatingTexts) {
+                    this.floatingTexts.forEach(text => {
+                        if (text.followEntity === hedle && text.active) {
+                            text.frozenX = text.x;
+                            text.frozenY = text.y;
+                            text.followEntity = null;
+                        }
+                    });
+                }
+
+                // Clean up all timers and animations
+                if (hedle.walkTimer) hedle.walkTimer.destroy();
+                if (hedle.bobTween) hedle.bobTween.destroy();
+                if (hedle.moveCycleTimer) hedle.moveCycleTimer.destroy();
+                if (hedle.waitCycleTimer) hedle.waitCycleTimer.destroy();
+
+                hedle.body.setVelocity(0, 0);
+                hedle.body.enable = false;
+
+                // Set up rotation animation (adjust origin and position)
+                const currentY = hedle.y;
+                hedle.setOrigin(0.5, 1);
+                hedle.y = currentY + (hedle.displayHeight / 2);
+
+                const fallDirection = Phaser.Math.Between(0, 1) === 0 ? -1 : 1;
+
+                this.tweens.add({
+                    targets: hedle,
+                    rotation: (Math.PI / 2) * fallDirection,
+                    alpha: 0,
+                    duration: 400,
+                    onComplete: () => hedle.destroy()
+                });
+
+                this.score++;
+                this.updateScoreDisplay();
+                this.animateScoreChange();
+            }
+
+            // Simplified hitHedle method - focuses on collision logic
             hitHedle(head, hedle) {
                 if (hedle.isDying) return;
 
@@ -1479,14 +1583,11 @@
                 const impactX = (head.x + hedle.x) / 2;
                 const impactY = (head.y + hedle.y) / 2;
 
-                // Create impact sparks at the collision point
-                this.createImpactSparks(impactX, impactY);
-
                 if (head.spellType || head.multiVisual) {
                     head.hasHitHedle = true;
                 }
 
-                // Check for spell effects
+                // Handle spell effects
                 if (head.spellType) {
                     if (head.spellType === 'fire') {
                         this.executeFireSpell(head.x, head.y);
@@ -1505,40 +1606,10 @@
                     }
                 }
 
-                hedle.isDying = true;
+                // Kill the hedle with impact sparks at collision point
+                this.killHedle(hedle, impactX, impactY);
 
-                const owwSounds = ['oww_1', 'oww_2', 'oww_3', 'oww_4'];
-                const randomOww = Phaser.Utils.Array.GetRandom(owwSounds);
-                if (this.cache.audio.exists(randomOww)) {
-                    this.sound.play(randomOww);
-                }
-
-                if (hedle.walkTimer) hedle.walkTimer.destroy();
-                if (hedle.bobTween) hedle.bobTween.destroy();
-                if (hedle.moveCycleTimer) hedle.moveCycleTimer.destroy();
-                if (hedle.waitCycleTimer) hedle.waitCycleTimer.destroy();
-
-                hedle.body.setVelocity(0, 0);
-                hedle.body.enable = false;
-
-                const currentY = hedle.y;
-                hedle.setOrigin(0.5, 1);
-                hedle.y = currentY + (hedle.displayHeight / 2);
-
-                const fallDirection = Phaser.Math.Between(0, 1) === 0 ? -1 : 1;
-
-                this.tweens.add({
-                    targets: hedle,
-                    rotation: (Math.PI / 2) * fallDirection,
-                    alpha: 0,
-                    duration: 400,
-                    onComplete: () => hedle.destroy()
-                });
-
-                this.score++;
-                this.updateScoreDisplay();
-                this.animateScoreChange();
-
+                // Handle head bouncing/slowing
                 if (!head.isPiercing) {
                     const currentSpeed = Math.sqrt(head.body.velocity.x ** 2 + head.body.velocity.y ** 2);
                     const newSpeed = currentSpeed * 0.5;
@@ -1548,6 +1619,7 @@
                     head.body.setVelocity(newVelX, newVelY);
                 }
             }
+
 
             headCollision(head1, head2) {
                 if (this.cache.audio.exists('ball_bounce')) {
@@ -1771,6 +1843,7 @@
                 book.setInteractive();
                 book.bookType = bookType;
                 book.setDepth(300);
+                this.scheduleBatMessage(bat);
 
                 book.on('pointerdown', () => {
                     this.uiClickThisFrame = true;
@@ -1804,6 +1877,9 @@
                     x: endX,
                     duration: this.gameWidth / this.BAT_SPEED * 1000,
                     onComplete: () => {
+                        if (bat.messageTimer) {
+                            bat.messageTimer.destroy();
+                        }
                         if (bat.animTimer) bat.animTimer.destroy();
                         bat.destroy();
                         if (book.active) book.destroy();
@@ -1889,6 +1965,15 @@
                     }
                 });
 
+                if (this.floatingTexts) {
+                    this.floatingTexts.forEach(floatingText => {
+                        if (floatingText.active && floatingText.followEntity && floatingText.followEntity.active) {
+                            floatingText.x = floatingText.followEntity.x;
+                            floatingText.y = floatingText.followEntity.y + floatingText.baseOffsetY + floatingText.floatOffsetY;
+                        }
+                    });
+                }
+
                 this.updateScreenFade(delta);
 
                 this.hedles.children.entries.forEach(hedle => {
@@ -1966,6 +2051,131 @@
                         this.gameOverFadeOverlay.fillStyle(0x000000, this.currentFadeOpacity);
                         this.gameOverFadeOverlay.fillRect(0, 0, this.gameWidth, this.gameHeight);
                     }
+                }
+            }
+
+            createFloatingText(entity, messages, offsetY = -32) {
+                if (this.gameOver || !entity.active) return;
+
+                // Check hedle message limit
+                if (entity.isHedle && this.activeHedleMessages >= this.MAX_HEDLE_MESSAGES) return;
+
+                const message = Phaser.Utils.Array.GetRandom(messages);
+
+                console.log("message triggered");
+
+                const floatingText = this.add.text(
+                    entity.x,
+                    entity.y + offsetY,
+                    message,
+                    {
+                        fontFamily: '"Press Start 2P", "Press Start 2P Local", monospace',
+                        fontSize: this.fontLoaded ? '24px' : '32px',
+                        fill: '#ffffff',
+                        align: 'center',
+                        stroke: '#000000',
+                        strokeThickness: 2
+                    }
+                );
+
+                floatingText.setOrigin(0.5);
+                floatingText.setDepth(350);
+                floatingText.setAlpha(0);
+
+                // Store entity reference and offset for following
+                floatingText.followEntity = entity;
+                floatingText.baseOffsetY = offsetY;
+                floatingText.floatOffsetY = 0; // Additional offset from floating animation
+
+                // Track hedle messages
+                if (entity.isHedle) {
+                    this.activeHedleMessages++;
+                    floatingText.isHedleMessage = true;
+                }
+
+                // Add to floating texts array for update tracking
+                if (!this.floatingTexts) {
+                    this.floatingTexts = [];
+                }
+                this.floatingTexts.push(floatingText);
+
+                // Fade in
+                this.tweens.add({
+                    targets: floatingText,
+                    alpha: 1,
+                    duration: 300,
+                    ease: 'Power2'
+                });
+
+                // Float upward slightly
+                this.tweens.add({
+                    targets: floatingText,
+                    floatOffsetY: -20,
+                    duration: 2000,
+                    ease: 'Sine.easeOut'
+                });
+
+                // Fade out and destroy after 2 seconds
+                this.time.delayedCall(2000, () => {
+                    if (floatingText.active) {
+                        this.tweens.add({
+                            targets: floatingText,
+                            alpha: 0,
+                            duration: 500,
+
+                            ease: 'Power2',
+                            onComplete: () => {
+                                if (floatingText.isHedleMessage) {
+                                    this.activeHedleMessages = Math.max(0, this.activeHedleMessages - 1);
+                                }
+
+                                // Remove from floating texts array
+                                const index = this.floatingTexts?.indexOf(floatingText);
+                                if (index > -1) {
+                                    this.floatingTexts.splice(index, 1);
+                                }
+
+                                floatingText.destroy();
+                            }
+                        });
+                    }
+                });
+
+                return floatingText;
+            }
+            scheduleHedleMessage(hedle) {
+                if (this.gameOver || !hedle.active || hedle.isDying) return;
+
+                // messageChance every checkInterval seconds
+                const checkInterval = 4000;
+                const messageChance = 0.5;
+
+                hedle.messageTimer = this.time.addEvent({
+                    delay: checkInterval,
+                    callback: () => {
+                        if (!this.gameOver && hedle.active && !hedle.isDying) {
+                            if (Math.random() < messageChance) {
+                                this.createFloatingText(hedle, this.hedleMessages, -32);
+                            }
+                        }
+                    },
+                    loop: true
+                });
+            }
+
+            scheduleBatMessage(bat) {
+                if (this.gameOver || !bat.active) return;
+
+                // chance the bat will say something during its flight
+                if (Math.random() < 0.8) {
+                    // Random delay between 500ms and 2000ms after bat appears
+                    const messageDelay = Phaser.Math.Between(500, 2000);
+
+                    bat.messageTimer = this.time.delayedCall(messageDelay, () => {
+                        if (!this.gameOver && bat.active) {
+                            this.createFloatingText(bat, this.batMessages, -32);
+                        }
+                    });
                 }
             }
 
@@ -2082,11 +2292,13 @@
                     if (!hedle.isDying) {
                         const distance = Phaser.Math.Distance.Between(x, y, hedle.x, hedle.y);
                         if (distance <= this.FIRE_EXPLOSION_RADIUS) {
-                            this.killHedleBySpell(hedle);
+                            // Use unified kill method (sparks will appear at hedle center)
+                            this.killHedle(hedle);
                         }
                     }
                 });
             }
+
 
             executeWaterSpell(x, y) {
                 const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
@@ -2142,11 +2354,14 @@
 
                         const distToLine = this.distanceToLine(hedle, lineStart, lineEnd);
                         if (distToLine <= 40) {
-                            this.killHedleBySpell(hedle);
+                            // Use unified kill method (sparks will appear at hedle center)
+                            this.killHedle(hedle);
                         }
                     }
                 });
             }
+
+
 
             distanceToLine(point, lineStart, lineEnd) {
                 const A = point.x - lineStart.x;
@@ -2177,39 +2392,6 @@
                 const dy = point.y - yy;
 
                 return Math.sqrt(dx * dx + dy * dy);
-            }
-
-            killHedleBySpell(hedle) {
-                if (hedle.isDying) return;
-
-                hedle.isDying = true;
-
-                const owwSounds = ['oww_1', 'oww_2', 'oww_3', 'oww_4'];
-                const randomOww = Phaser.Utils.Array.GetRandom(owwSounds);
-                if (this.cache.audio.exists(randomOww)) {
-                    this.sound.play(randomOww);
-                }
-
-                if (hedle.walkTimer) hedle.walkTimer.destroy();
-                if (hedle.bobTween) hedle.bobTween.destroy();
-                if (hedle.moveCycleTimer) hedle.moveCycleTimer.destroy();
-                if (hedle.waitCycleTimer) hedle.waitCycleTimer.destroy();
-
-                hedle.body.setVelocity(0, 0);
-                hedle.body.enable = false;
-
-                this.tweens.add({
-                    targets: hedle,
-                    alpha: 0,
-                    scaleX: 0,
-                    scaleY: 0,
-                    duration: 500,
-                    onComplete: () => hedle.destroy()
-                });
-
-                this.score++;
-                this.updateScoreDisplay();
-                this.animateScoreChange();
             }
 
             addStormTrail(head) {

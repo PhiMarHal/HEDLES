@@ -727,13 +727,19 @@
             }
 
             create() {
-                // EXACT same create() method as original...
                 // Create golden dot texture for particles
                 const graphics = this.make.graphics({ x: 0, y: 0, add: false });
                 graphics.fillStyle(0xFFD700, 1);
                 graphics.fillCircle(4, 4, 4);
                 graphics.generateTexture('golden_dot', 8, 8);
                 graphics.destroy();
+
+                // red hedle particles
+                const redGraphics = this.make.graphics({ x: 0, y: 0, add: false });
+                redGraphics.fillStyle(0xff0000, 1);
+                redGraphics.fillCircle(4, 4, 4);
+                redGraphics.generateTexture('red_dot', 8, 8);
+                redGraphics.destroy();
 
                 // Set background with tiled texture
                 this.cameras.main.setBackgroundColor(0x2c3e50);
@@ -1518,6 +1524,10 @@
                 this.createImpactSparks(sparkX, sparkY);
 
                 hedle.isDying = true;
+                if (hedle.dangerParticles) {
+                    hedle.dangerParticles.destroy();
+                    hedle.dangerParticles = null;
+                }
 
                 const owwSounds = ['oww_1', 'oww_2', 'oww_3', 'oww_4'];
                 const randomOww = Phaser.Utils.Array.GetRandom(owwSounds);
@@ -1979,6 +1989,38 @@
                             hedle.body.setVelocityY(Math.abs(hedle.body.velocity.y));
                         }
                     }
+
+                    // Danger zone red particles (bottom of screen)
+                    if (!hedle.isDying) {
+                        const dangerZone = this.gameHeight * 0.75;
+                        const isInDanger = hedle.y > dangerZone;
+
+                        if (isInDanger && !hedle.dangerParticles) {
+                            hedle.dangerParticles = this.add.particles(hedle.x, hedle.y, 'red_dot', {
+                                scale: { start: 0.8, end: 0.2 },
+                                alpha: { start: 0.8, end: 0.1 },
+                                speed: { min: 20, max: 40 },
+                                lifespan: 800,
+                                frequency: 80,
+                                quantity: 4,
+                                emitZone: {
+                                    type: 'random',
+                                    source: new Phaser.Geom.Circle(0, 0, 64),
+                                    quantity: 2
+                                }
+                            });
+                            hedle.dangerParticles.setDepth(140);
+
+                        } else if (!isInDanger && hedle.dangerParticles) {
+                            hedle.dangerParticles.destroy();
+                            hedle.dangerParticles = null;
+                        }
+
+                        if (hedle.dangerParticles) {
+                            hedle.dangerParticles.x = hedle.x;
+                            hedle.dangerParticles.y = hedle.y;
+                        }
+                    }
                 });
 
                 this.heads.children.entries.forEach(head => {
@@ -2058,7 +2100,7 @@
                     message,
                     {
                         fontFamily: '"Press Start 2P", "Press Start 2P Local", monospace',
-                        fontSize: this.fontLoaded ? '16px' : '18px',
+                        fontSize: this.fontLoaded ? '24px' : '32px',
                         fill: '#ffffff',
                         align: 'center',
                         stroke: '#000000',
