@@ -563,6 +563,7 @@
                 this.batDelayIncrement = 200;
                 this.spellSlots = [null, null, null, null];
                 this.selectedSpell = null;
+                this.activeWaterLines = [];
                 this.isMultiShotting = false;
                 this.isFiring = false;
                 this.shotQueued = false;
@@ -734,13 +735,19 @@
             }
 
             create() {
-                // EXACT same create() method as original...
                 // Create golden dot texture for particles
                 const graphics = this.make.graphics({ x: 0, y: 0, add: false });
                 graphics.fillStyle(0xFFD700, 1);
                 graphics.fillCircle(4, 4, 4);
                 graphics.generateTexture('golden_dot', 8, 8);
                 graphics.destroy();
+
+                // red hedle particles
+                const redGraphics = this.make.graphics({ x: 0, y: 0, add: false });
+                redGraphics.fillStyle(0xff0000, 1);
+                redGraphics.fillCircle(4, 4, 4);
+                redGraphics.generateTexture('red_dot', 8, 8);
+                redGraphics.destroy();
 
                 // Set background with tiled texture
                 this.cameras.main.setBackgroundColor(0x2c3e50);
@@ -1525,6 +1532,10 @@
                 this.createImpactSparks(sparkX, sparkY);
 
                 hedle.isDying = true;
+                if (hedle.dangerParticles) {
+                    hedle.dangerParticles.destroy();
+                    hedle.dangerParticles = null;
+                }
 
                 const owwSounds = ['oww_1', 'oww_2', 'oww_3', 'oww_4'];
                 const randomOww = Phaser.Utils.Array.GetRandom(owwSounds);
@@ -1907,7 +1918,6 @@
                 // CRITICAL: Keep the horse movement update!
                 this.updateHorseMovement();
 
-                // [All the rest of the update method exactly as original...]
                 if (this.cannonOnCooldown) {
                     const elapsed = this.time.now - this.cannonCooldownStart;
                     if (elapsed >= this.CANNON_COOLDOWN_TIME) {
@@ -1991,8 +2001,58 @@
                             hedle.body.setVelocityY(Math.abs(hedle.body.velocity.y));
                         }
                     }
+
+                    // Danger zone red particles (bottom of screen)
+                    if (!hedle.isDying) {
+                        const dangerZone = this.gameHeight * 0.75;
+                        const isInDanger = hedle.y > dangerZone;
+
+                        if (isInDanger && !hedle.dangerParticles) {
+                            hedle.dangerParticles = this.add.particles(hedle.x, hedle.y, 'red_dot', {
+                                scale: { start: 0.8, end: 0.2 },
+                                alpha: { start: 0.8, end: 0.1 },
+                                speed: { min: 20, max: 40 },
+                                lifespan: 800,
+                                frequency: 80,
+                                quantity: 4,
+                                emitZone: {
+                                    type: 'random',
+                                    source: new Phaser.Geom.Circle(0, 0, 64),
+                                    quantity: 2
+                                }
+                            });
+                            hedle.dangerParticles.setDepth(140);
+
+                        } else if (!isInDanger && hedle.dangerParticles) {
+                            hedle.dangerParticles.destroy();
+                            hedle.dangerParticles = null;
+                        }
+
+                        if (hedle.dangerParticles) {
+                            hedle.dangerParticles.x = hedle.x;
+                            hedle.dangerParticles.y = hedle.y;
+                        }
+                    }
                 });
 
+                // Check persistent water line collisions
+                this.activeWaterLines = this.activeWaterLines.filter(line => {
+                    if (this.time.now > line.expiresAt) return false;
+
+                    this.hedles.children.entries.forEach(hedle => {
+                        if (!hedle.isDying) {
+                            const distToLine = this.distanceToLine(hedle,
+                                { x: line.x1, y: line.y1 },
+                                { x: line.x2, y: line.y2 });
+                            if (distToLine <= 40) {
+                                this.killHedle(hedle);
+                            }
+                        }
+                    });
+                    return true;
+                });
+
+                // Cleanup heads
                 this.heads.children.entries.forEach(head => {
                     if (head.x < -200 || head.x > this.gameWidth + 200 ||
                         head.y < -200 || head.y > this.gameHeight + 200) {
@@ -2061,8 +2121,6 @@
                 if (entity.isHedle && this.activeHedleMessages >= this.MAX_HEDLE_MESSAGES) return;
 
                 const message = Phaser.Utils.Array.GetRandom(messages);
-
-                console.log("message triggered");
 
                 const floatingText = this.add.text(
                     entity.x,
@@ -2228,6 +2286,8 @@
                     });
                 }
 
+                this.activeWaterLines = [];
+
                 this.scoreDigits.forEach(digit => {
                     this.tweens.add({
                         targets: digit,
@@ -2299,67 +2359,58 @@
                 });
             }
 
-
             executeWaterSpell(x, y) {
-                const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
-                const numSegments = 40;
-                const waveLength = 400;
+                const angle = 0; // Always horizontal
+                const waterLineLength = 256;
+                const numSegments = 8; // 256px / 32px per segment
 
+                // Create visual sprites
+                const waveLength = 128; // Wavelength for the traveling wave
                 for (let i = 0; i < numSegments; i++) {
-                    const segmentDist = (i / numSegments) * this.WATER_LINE_LENGTH - this.WATER_LINE_LENGTH / 2;
-                    const waterX = x + Math.cos(angle) * segmentDist;
-                    const waterY = y + Math.sin(angle) * segmentDist;
+                    const segmentDist = (i / numSegments) * waterLineLength - waterLineLength / 2;
+                    const waterX = x + segmentDist;
+                    const waterY = y;
 
                     const water = this.add.image(waterX, waterY, 'spell_water');
                     water.setDisplaySize(60, 60);
-                    water.setRotation(angle);
 
+                    // Traveling wave motion
                     const wavePhase = (Math.abs(segmentDist) % waveLength) / waveLength * Math.PI * 2;
                     const waveAmplitude = 25;
                     const waveFrequency = 800;
 
-                    const perpAngle = angle + Math.PI / 2;
-                    const startX = water.x;
-                    const startY = water.y;
-
                     this.tweens.add({
                         targets: water,
-                        x: startX + Math.cos(perpAngle) * waveAmplitude,
-                        y: startY + Math.sin(perpAngle) * waveAmplitude,
+                        y: waterY + waveAmplitude,
                         duration: waveFrequency / 2,
                         delay: wavePhase * 100,
                         yoyo: true,
-                        repeat: 3,
+                        repeat: 15, // ~8 seconds of wave motion
                         ease: 'Sine.easeInOut'
                     });
 
+                    // Fade only in the last second
                     this.tweens.add({
                         targets: water,
                         alpha: 0,
-                        duration: 2000,
+                        duration: 1000,
+                        delay: 7000, // Start fading after 7 seconds
                         onComplete: () => water.destroy()
                     });
                 }
 
-                this.hedles.children.entries.forEach(hedle => {
-                    if (!hedle.isDying) {
-                        const lineStart = {
-                            x: x - Math.cos(angle) * this.WATER_LINE_LENGTH / 2,
-                            y: y - Math.sin(angle) * this.WATER_LINE_LENGTH / 2
-                        };
-                        const lineEnd = {
-                            x: x + Math.cos(angle) * this.WATER_LINE_LENGTH / 2,
-                            y: y + Math.sin(angle) * this.WATER_LINE_LENGTH / 2
-                        };
+                // Store collision line
+                const waterLine = {
+                    x1: x - waterLineLength / 2,
+                    y1: y,
+                    x2: x + waterLineLength / 2,
+                    y2: y,
+                    expiresAt: this.time.now + 8000
+                };
 
-                        const distToLine = this.distanceToLine(hedle, lineStart, lineEnd);
-                        if (distToLine <= 40) {
-                            // Use unified kill method (sparks will appear at hedle center)
-                            this.killHedle(hedle);
-                        }
-                    }
-                });
+                this.activeWaterLines.push(waterLine);
             }
+
 
 
 
