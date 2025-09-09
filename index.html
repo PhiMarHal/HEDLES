@@ -71,16 +71,16 @@
                 });
             }
 
-            // Shared layout calculations (exact same math in Start/Story scenes)
+            // Shared layout calculations - updated for 2:3 aspect ratio
             static getBookLayout() {
                 const gameWidth = 900;
-                const gameHeight = 1600;
+                const gameHeight = 1350;
                 const centerX = gameWidth / 2;
                 const bookScale = gameWidth / 1024; // 0.878
                 const scaledBookHeight = 1220 * bookScale; // 1071px
-                const bookY = gameHeight / 2;
-                const buttonSpacing = (gameHeight - scaledBookHeight) / 2; // 264px
-                const bottomButtonY = gameHeight - (buttonSpacing / 2);
+                const bookY = gameHeight * 0.42; // Middle ground between center (0.5) and too high (0.3)
+                const buttonSpacing = 128; // Fixed spacing between book and buttons
+                const bottomButtonY = bookY + (scaledBookHeight / 2) + buttonSpacing; // Position relative to book
 
                 return {
                     gameWidth,
@@ -196,7 +196,7 @@
             constructor() {
                 super({ key: 'StoryScreen' });
                 this.gameWidth = 900;
-                this.gameHeight = 1600;
+                this.gameHeight = 1350; // Changed from 1600
 
                 // Story text (themed around the game)
                 this.storyLines = [
@@ -317,11 +317,11 @@
             createStoryElements() {
                 const layout = SharedUtils.getBookLayout();
 
-                // Add secret cover image (same scaling)
+                // Add secret cover image (positioned higher up)
                 this.cover = this.add.image(layout.centerX, layout.bookY, 'cover_secret');
                 this.cover.setDisplaySize(layout.gameWidth, layout.scaledBookHeight);
 
-                // Story button (bottom left)
+                // Story button (bottom left) - now properly positioned relative to book
                 this.storyButton = this.add.image(layout.storyButtonX, layout.bottomButtonY, 'click_story');
                 this.storyButton.setDisplaySize(384, 192);
                 this.storyButton.setInteractive();
@@ -335,7 +335,7 @@
                     SharedUtils.buttonPress(this, this.storyButton, 'click_story2', 'StoryScreen');
                 });
 
-                // Play button (bottom right)
+                // Play button (bottom right) - now properly positioned relative to book
                 this.playButton = this.add.image(layout.playButtonX, layout.bottomButtonY, 'click_play');
                 this.playButton.setDisplaySize(384, 192);
                 this.playButton.setInteractive();
@@ -349,16 +349,16 @@
                     SharedUtils.buttonPress(this, this.playButton, 'click_play2', 'GameScreen');
                 });
 
-                // Add text background INSIDE the cover area (bottom portion)
-                const textBgScale = layout.bookScale; // Same scale as book
-                const textBgWidth = 1024 * textBgScale; // Scaled width
-                const textBgHeight = 256 * textBgScale; // Scaled height
-                const textBgY = layout.bookY + (layout.scaledBookHeight / 2) - (textBgHeight / 2) - 50; // Inside bottom of book
+                // Add text background at the bottom of the book - repositioned
+                const textBgScale = layout.bookScale;
+                const textBgWidth = 1024 * textBgScale;
+                const textBgHeight = 256 * textBgScale;
+                const textBgY = layout.bookY + (layout.scaledBookHeight / 2) - (textBgHeight / 2) - 20; // Bottom of book
 
                 this.textBackground = this.add.image(layout.centerX, textBgY, 'text_background');
                 this.textBackground.setDisplaySize(textBgWidth, textBgHeight);
 
-                // Create text object for story
+                // Create text object for story - positioned within the repositioned background
                 const textMarginX = textBgWidth * 0.08;
                 const textMarginY = textBgHeight * 0.22;
                 this.textWrapWidth = textBgWidth - (textMarginX * 2);
@@ -383,7 +383,7 @@
                 );
                 this.storyText.setOrigin(0, 0);
 
-                // Add continue prompt (initially hidden)
+                // Add continue prompt - positioned below the repositioned dialog box
                 this.continuePrompt = this.add.text(layout.centerX, textBgY + (textBgHeight / 2) + 40, 'Press SPACE or CLICK to continue...', {
                     fontFamily: '"Press Start 2P", "Press Start 2P Local", monospace',
                     fontSize: this.fontLoaded ? '18px' : '20px',
@@ -397,6 +397,7 @@
                 this.tweens.add({
                     targets: this.continuePrompt,
                     alpha: 0.3,
+
                     duration: 800,
                     yoyo: true,
                     repeat: -1,
@@ -429,7 +430,6 @@
                 // Start the first line
                 this.showNextLine();
             }
-
             handleAdvance() {
                 if (this.isTyping) {
                     this.completeCurrentLine();
@@ -503,7 +503,7 @@
             constructor() {
                 super({ key: 'GameScreen' });
 
-                // Game configuration - KEEP ALL EXACTLY AS THEY WERE
+                // Game configuration - Updated for 2:3 aspect ratio
                 this.CANNON_SIZE = 96;
                 this.CANNON_CHARGE_TIME = 500;
                 this.CANNON_COOLDOWN_TIME = 1000;
@@ -511,7 +511,7 @@
                 this.HEDLE_SIZE = 160;
                 this.EGG_SIZE = 80;
                 this.HEAD_SPEED = 800;
-                this.HEDLE_SPEED = 100;
+                this.HEDLE_SPEED = 75;
                 this.HEDLE_MOVE_TIME = 2000;
                 this.HEDLE_WAIT_TIME = 1000;
                 this.HEDLE_WALK_SPRITE_INTERVAL = 400;
@@ -535,9 +535,9 @@
                 this.HEAD_COUNT = 119;
                 this.HEDLE_COUNT = 84;
 
-                // Game dimensions
+                // Game dimensions - Updated for 2:3 aspect ratio
                 this.gameWidth = 900;
-                this.gameHeight = 1600;
+                this.gameHeight = 1350; // Changed from 1600
             }
 
             init() {
@@ -615,7 +615,7 @@
                 this.gameOverMessages = [
                     "The darkness engulfs you...",
                     "As you lose consciousness, odd runes twirl around your head: KA JI SU LI",
-                    "Bats don’t need HED, they just need the Apprentice’s love. Poke them gently, and they’ll thank you in silence.",
+                    "Bats donâ€™t need HED, they just need the Apprenticeâ€™s love. Poke them gently, and theyâ€™ll thank you in silence.",
                     "WEN TGE",
                     "Some say they hear screams coming from the secret tower , but somehow seem strangely muffled, as if they are coming from closed mouths..."
                 ];
@@ -745,7 +745,7 @@
                 // Set background with tiled texture
                 this.cameras.main.setBackgroundColor(0x2c3e50);
 
-                // Tile the background texture
+                // Tile the background texture - adjusted for new height
                 const bgWidth = 900;
                 const bgHeight = 1024;
                 const tilesX = Math.ceil(this.gameWidth / bgWidth);
@@ -759,7 +759,7 @@
                     }
                 }
 
-                // Set world bounds for physics
+                // Set world bounds for physics - adjusted for new height
                 this.physics.world.setBounds(0, 0, this.gameWidth, this.gameHeight);
                 this.physics.world.setBoundsCollision(true, true, true, true);
 
@@ -768,8 +768,8 @@
                 this.heads = this.physics.add.group();
                 this.eggs = [];
 
-                // Create cannon
-                this.cannon = this.add.image(this.gameWidth / 2, this.gameHeight - 100, 'cannon');
+                // Create cannon - adjusted position for new height
+                this.cannon = this.add.image(this.gameWidth / 2, this.gameHeight - 85, 'cannon'); // Adjusted from gameHeight - 100
                 this.cannon.setDisplaySize(this.CANNON_SIZE, this.CANNON_SIZE * 2);
                 this.cannon.setOrigin(0.5, 0.5);
                 this.cannon.setDepth(200);
@@ -781,7 +781,7 @@
                 this.physics.add.overlap(this.heads, this.hedles, this.hitHedle, this.canHitHedle, this);
                 this.physics.add.collider(this.heads, this.heads, this.headCollision, this.canHeadsCollide, this);
 
-                // Create screen fade overlay for tension effect
+                // Create screen fade overlay for tension effect - adjusted for new height
                 this.gameOverFadeOverlay = this.add.graphics();
                 this.gameOverFadeOverlay.fillStyle(0x000000, 0);
                 this.gameOverFadeOverlay.fillRect(0, 0, this.gameWidth, this.gameHeight);
@@ -895,7 +895,7 @@
                 // Set black background immediately
                 this.cameras.main.setBackgroundColor(0x000000);
 
-                // Create loading text using system font initially
+                // Create loading text using system font initially - adjusted position for new height
                 this.loadingText = this.add.text(
                     this.gameWidth / 2,
                     this.gameHeight / 2,
@@ -1189,7 +1189,7 @@
 
             hatchEgg(egg) {
                 const hedleX = Phaser.Math.Clamp(egg.x, 80, this.gameWidth - 80);
-                const hedleY = Phaser.Math.Clamp(egg.y, 80, this.gameHeight - 200);
+                const hedleY = Phaser.Math.Clamp(egg.y, 80, this.gameHeight - 170); // Adjusted for new height
 
                 const hedle = this.physics.add.sprite(hedleX, hedleY, `body_${egg.hedleId}_ft`);
 
@@ -1221,12 +1221,9 @@
                 egg.destroy();
             }
 
-            // KEEP ALL OTHER METHODS EXACTLY AS THEY WERE...
-            // [I'll include the key ones but for space I'm showing the pattern]
-
             createSpellInterface() {
                 this.spellIcons = [];
-                const slotY = this.gameHeight - 100;
+                const slotY = this.gameHeight - 85; // Adjusted from gameHeight - 100
                 const leftSlotX = [this.gameWidth / 2 - 280, this.gameWidth / 2 - 160];
                 const rightSlotX = [this.gameWidth / 2 + 160, this.gameWidth / 2 + 280];
 
@@ -1656,7 +1653,7 @@
 
             checkGameOver() {
                 this.hedles.children.entries.forEach(hedle => {
-                    if (!hedle.isDying && hedle.y > this.gameHeight - 160) {
+                    if (!hedle.isDying && hedle.y > this.gameHeight - 135) { // Adjusted for new height
                         this.endGame();
                     }
                 });
@@ -1924,11 +1921,11 @@
                     const shakeIntensity = Math.min(chargeProgress * 10, 10);
 
                     this.cannon.x = this.gameWidth / 2 + (Math.random() - 0.5) * shakeIntensity;
-                    this.cannon.y = this.gameHeight - 100 + (Math.random() - 0.5) * shakeIntensity;
+                    this.cannon.y = this.gameHeight - 85 + (Math.random() - 0.5) * shakeIntensity; // Adjusted
                     this.cannon.setTint(0xff4444);
                 } else {
                     this.cannon.x = this.gameWidth / 2;
-                    this.cannon.y = this.gameHeight - 100;
+                    this.cannon.y = this.gameHeight - 85; // Adjusted
 
                     if (this.selectedSpell !== null && this.spellSlots[this.selectedSpell]) {
                         const spellType = this.spellSlots[this.selectedSpell];
@@ -1990,7 +1987,7 @@
                         }
                     }
 
-                    // Danger zone red particles (bottom of screen)
+                    // Danger zone red particles (bottom of screen) - adjusted for new height
                     if (!hedle.isDying) {
                         const dangerZone = this.gameHeight * 0.75;
                         const isInDanger = hedle.y > dangerZone;
@@ -2063,7 +2060,7 @@
                 this.hedles.children.entries.forEach(hedle => {
                     if (!hedle.isDying) {
                         const threatZoneStart = this.gameHeight * 0.2;
-                        const gameOverZone = this.gameHeight - 160;
+                        const gameOverZone = this.gameHeight - 135; // Adjusted for new height
 
                         if (hedle.y > threatZoneStart) {
                             const threatLevel = Math.min((hedle.y - threatZoneStart) / (gameOverZone - threatZoneStart), 1);
@@ -2168,7 +2165,6 @@
                             targets: floatingText,
                             alpha: 0,
                             duration: 500,
-
                             ease: 'Power2',
                             onComplete: () => {
                                 if (floatingText.isHedleMessage) {
@@ -2189,6 +2185,7 @@
 
                 return floatingText;
             }
+
             scheduleHedleMessage(hedle) {
                 if (this.gameOver || !hedle.active || hedle.isDying) return;
 
@@ -2294,7 +2291,7 @@
                     () => {
                         this.createGameOverPlayButton(
                             this.gameWidth / 2,
-                            this.gameHeight / 2 + 200
+                            this.gameHeight / 2 + 170 // Adjusted for new height
                         );
                     }
                 );
@@ -2392,9 +2389,6 @@
 
                 this.activeWaterLines.push(waterLine);
             }
-
-
-
 
             distanceToLine(point, lineStart, lineEnd) {
                 const A = point.x - lineStart.x;
@@ -2516,11 +2510,11 @@
             }
         }
 
-        // Game configuration
+        // Game configuration - Updated for 2:3 aspect ratio
         const config = {
             type: Phaser.AUTO,
             width: 900,
-            height: 1600,
+            height: 1350, // Changed from 1600
             parent: 'game-container',
             physics: {
                 default: 'arcade',
@@ -2537,6 +2531,322 @@
         };
 
         const game = new Phaser.Game(config);
+
+        // L Pattern Background System - Golden border and intertwined L patterns
+        const LPatternBackgroundSystem = {
+            patternCanvas: null,
+            borderCanvas: null,
+            isInitialized: false,
+
+            // Configuration
+            config: {
+                size: 6,
+                thickness: 4,
+                spacing: 4,
+                color: '#FFD700',
+                opacity: 0.5,
+                borderWidth: 8
+            },
+
+            // Initialize the L pattern background
+            init: function () {
+                if (this.isInitialized) return;
+
+                console.log("Initializing L pattern background...");
+
+                // Create canvases
+                this.createCanvases();
+
+                // Draw the pattern immediately
+                this.drawPattern();
+
+                // Wait for Phaser canvas to be ready, then handle borders
+                setTimeout(() => {
+                    this.updateBorders();
+                }, 20);
+
+                // Listen for window resize
+                window.addEventListener('resize', () => this.handleResize());
+
+                this.isInitialized = true;
+                console.log("L pattern background initialized");
+            },
+
+            // Create separate canvases for pattern and border
+            createCanvases: function () {
+                // Safety check: ensure valid viewport dimensions
+                if (window.innerWidth <= 0 || window.innerHeight <= 0) {
+                    console.warn('Invalid viewport dimensions, delaying canvas creation');
+                    setTimeout(() => this.createCanvases(), 50);
+                    return;
+                }
+
+                // Create pattern canvas
+                this.patternCanvas = document.createElement('canvas');
+                this.patternCanvas.id = 'l-pattern-background';
+                this.patternCanvas.style.position = 'fixed';
+                this.patternCanvas.style.top = '0';
+                this.patternCanvas.style.left = '0';
+                this.patternCanvas.style.width = '100vw';
+                this.patternCanvas.style.height = '100vh';
+                this.patternCanvas.style.zIndex = '-1000';
+                this.patternCanvas.style.pointerEvents = 'none';
+                this.patternCanvas.style.opacity = this.config.opacity;
+                this.patternCanvas.width = window.innerWidth;
+                this.patternCanvas.height = window.innerHeight;
+                document.body.appendChild(this.patternCanvas);
+
+                // Create border canvas (full opacity)
+                this.borderCanvas = document.createElement('canvas');
+                this.borderCanvas.id = 'l-border-background';
+                this.borderCanvas.style.position = 'fixed';
+                this.borderCanvas.style.top = '0';
+                this.borderCanvas.style.left = '0';
+                this.borderCanvas.style.width = '100vw';
+                this.borderCanvas.style.height = '100vh';
+                this.borderCanvas.style.zIndex = '-999';
+                this.borderCanvas.style.pointerEvents = 'none';
+                this.borderCanvas.style.opacity = '1.0';
+                this.borderCanvas.width = window.innerWidth;
+                this.borderCanvas.height = window.innerHeight;
+                document.body.appendChild(this.borderCanvas);
+            },
+
+            // Find the actual Phaser canvas element
+            findPhaserCanvas: function () {
+                // Try multiple selectors to find the Phaser canvas
+                const selectors = [
+                    '#game-container canvas',
+                    '.phaser-canvas',
+                    'canvas[data-phaser="true"]',
+                    '#game-container > canvas'
+                ];
+
+                for (const selector of selectors) {
+                    const canvas = document.querySelector(selector);
+                    if (canvas) {
+                        console.log("Found Phaser canvas with selector:", selector);
+                        return canvas;
+                    }
+                }
+
+                // Fallback: find any canvas inside game-container
+                const gameContainer = document.getElementById('game-container');
+                if (gameContainer) {
+                    const canvas = gameContainer.querySelector('canvas');
+                    if (canvas) {
+                        console.log("Found canvas in game-container");
+                        return canvas;
+                    }
+                }
+
+                console.warn("Could not find Phaser canvas");
+                return null;
+            },
+
+            // Check letterboxing and determine which sides need borders
+            getLetterboxingSides: function () {
+                const phaserCanvas = this.findPhaserCanvas();
+                if (!phaserCanvas) {
+                    return { top: false, bottom: false, left: false, right: false };
+                }
+
+                const canvasRect = phaserCanvas.getBoundingClientRect();
+                const viewportWidth = window.innerWidth;
+                const viewportHeight = window.innerHeight;
+
+                console.log("Canvas rect:", canvasRect);
+                console.log("Viewport:", viewportWidth, "x", viewportHeight);
+
+                const sides = {
+                    left: canvasRect.left > 10,
+                    right: (viewportWidth - canvasRect.right) > 10,
+                    top: canvasRect.top > 10,
+                    bottom: (viewportHeight - canvasRect.bottom) > 10
+                };
+
+                console.log("Letterboxing sides:", sides);
+                return sides;
+            },
+
+            // Check if any letterboxing exists
+            hasAnyLetterboxing: function () {
+                const sides = this.getLetterboxingSides();
+                return sides.left || sides.right || sides.top || sides.bottom;
+            },
+
+            // Update borders based on current layout
+            updateBorders: function () {
+                const letterboxingSides = this.getLetterboxingSides();
+                const hasAnyBoxing = this.hasAnyLetterboxing();
+
+                if (hasAnyBoxing) {
+                    this.drawGameBorder(letterboxingSides);
+                } else {
+                    this.clearBorder();
+                }
+            },
+
+            // Draw the L pattern
+            drawPattern: function () {
+                if (!this.patternCanvas) return;
+
+                const ctx = this.patternCanvas.getContext('2d');
+                ctx.clearRect(0, 0, this.patternCanvas.width, this.patternCanvas.height);
+                ctx.fillStyle = this.config.color;
+
+                // Calculate L dimensions with 3:2 ratio (standing up)
+                const verticalHeight = this.config.size * 3;
+                const horizontalWidth = this.config.size * 2;
+                const thickness = this.config.thickness;
+
+                // Interlocking pattern dimensions
+                const overlapOffset = horizontalWidth * 0.6;
+                const pairWidth = horizontalWidth * 1.6;
+                const patternWidth = pairWidth + this.config.spacing;
+                const verticalSpacing = verticalHeight + this.config.spacing;
+
+                const numPatternsPerRow = Math.ceil(this.patternCanvas.width / patternWidth) + 2;
+                const rows = Math.ceil(this.patternCanvas.height / verticalSpacing) + 1;
+
+                for (let row = 0; row < rows; row++) {
+                    // Calculate row offset
+                    const rowOffset = (row % 2 === 1) ? patternWidth / 3 : 0;
+
+                    // Create temporary canvas for this row to avoid opacity compounding
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = this.patternCanvas.width;
+                    tempCanvas.height = verticalHeight;
+                    const tempCtx = tempCanvas.getContext('2d');
+                    tempCtx.fillStyle = this.config.color;
+
+                    for (let patternIndex = 0; patternIndex < numPatternsPerRow; patternIndex++) {
+                        const patternStartX = patternIndex * patternWidth - rowOffset;
+                        const tempY = 0;
+
+                        if (patternStartX > this.patternCanvas.width + patternWidth) continue;
+
+                        // Normal L position
+                        const normalLX = patternStartX;
+                        // Inverted L position
+                        const invertedLX = patternStartX + overlapOffset;
+
+                        // Draw normal L on temp canvas
+                        if (normalLX + horizontalWidth > 0 && normalLX < this.patternCanvas.width) {
+                            tempCtx.fillRect(normalLX, tempY, thickness, verticalHeight);
+                            tempCtx.fillRect(normalLX, tempY + verticalHeight - thickness, horizontalWidth, thickness);
+                        }
+
+                        // Draw inverted L on temp canvas
+                        if (invertedLX + horizontalWidth > 0 && invertedLX < this.patternCanvas.width) {
+                            tempCtx.fillRect(invertedLX, tempY, horizontalWidth, thickness);
+                            tempCtx.fillRect(invertedLX + horizontalWidth - thickness, tempY, thickness, verticalHeight);
+                        }
+                    }
+
+                    // Draw temp canvas to main canvas with row-based opacity
+                    const y = row * verticalSpacing;
+                    if (y <= this.patternCanvas.height) {
+                        ctx.globalAlpha = (row % 2 === 0) ? 0.5 : 1.0;
+                        ctx.drawImage(tempCanvas, 0, y);
+                        ctx.globalAlpha = 1.0;
+                    }
+                }
+            },
+
+            // Draw border around game area only on needed sides
+            drawGameBorder: function (sides) {
+                const phaserCanvas = this.findPhaserCanvas();
+                if (!phaserCanvas) return;
+
+                const ctx = this.borderCanvas.getContext('2d');
+                ctx.clearRect(0, 0, this.borderCanvas.width, this.borderCanvas.height);
+
+                const canvasRect = phaserCanvas.getBoundingClientRect();
+                const borderWidth = this.config.borderWidth;
+
+                ctx.fillStyle = this.config.color;
+
+                const x = canvasRect.left;
+                const y = canvasRect.top;
+                const width = canvasRect.width;
+                const height = canvasRect.height;
+
+                console.log("Drawing border around canvas at:", x, y, width, height);
+
+                // Draw only the sides that have letterboxing
+                if (sides.top) {
+                    ctx.fillRect(x - borderWidth, y - borderWidth, width + (borderWidth * 2), borderWidth);
+                }
+
+                if (sides.bottom) {
+                    ctx.fillRect(x - borderWidth, y + height, width + (borderWidth * 2), borderWidth);
+                }
+
+                if (sides.left) {
+                    ctx.fillRect(x - borderWidth, y, borderWidth, height);
+                }
+
+                if (sides.right) {
+                    ctx.fillRect(x + width, y, borderWidth, height);
+                }
+
+                console.log("Drew game border - letterboxing on sides:", sides);
+            },
+
+            // Clear the border canvas
+            clearBorder: function () {
+                if (!this.borderCanvas) return;
+                const ctx = this.borderCanvas.getContext('2d');
+                ctx.clearRect(0, 0, this.borderCanvas.width, this.borderCanvas.height);
+            },
+
+            // Handle window resize
+            handleResize: function () {
+                if (!this.patternCanvas || !this.borderCanvas) return;
+
+                // Update canvas sizes
+                this.patternCanvas.width = window.innerWidth;
+                this.patternCanvas.height = window.innerHeight;
+                this.borderCanvas.width = window.innerWidth;
+                this.borderCanvas.height = window.innerHeight;
+
+                // Redraw pattern
+                this.drawPattern();
+
+                // Update borders after a short delay to let layout settle
+                setTimeout(() => {
+                    this.updateBorders();
+                }, 50);
+            },
+
+            // Set opacity (only affects pattern, not border)
+            setOpacity: function (opacity) {
+                this.config.opacity = Math.max(0, Math.min(1, opacity));
+                if (this.patternCanvas) {
+                    this.patternCanvas.style.opacity = this.config.opacity;
+                }
+            },
+
+            // Clean up
+            cleanup: function () {
+                if (this.patternCanvas && this.patternCanvas.parentNode) {
+                    this.patternCanvas.parentNode.removeChild(this.patternCanvas);
+                }
+                if (this.borderCanvas && this.borderCanvas.parentNode) {
+                    this.borderCanvas.parentNode.removeChild(this.borderCanvas);
+                }
+                this.patternCanvas = null;
+                this.borderCanvas = null;
+                this.isInitialized = false;
+                window.removeEventListener('resize', this.handleResize);
+
+                console.log("L pattern background cleaned up");
+            }
+        };
+
+        // Initialize the background system immediately after the game is created
+        LPatternBackgroundSystem.init();
     </script>
 </body>
 
