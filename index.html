@@ -515,7 +515,7 @@
                 this.HEDLE_MOVE_TIME = 2000;
                 this.HEDLE_WAIT_TIME = 1000;
                 this.HEDLE_WALK_SPRITE_INTERVAL = 400;
-                this.MINIMUM_SPAWN_DELAY = 500;
+                this.MINIMUM_SPAWN_DELAY = 1000;
                 this.EGG_GROWTH_TIME = 4000;
                 this.MIN_HEAD_DAMAGE_SPEED = 50;
                 this.BAT_SPEED = 200;
@@ -541,7 +541,7 @@
             }
 
             init() {
-                // Reset all game state on init (for proper restart) - KEEP ALL OF THIS
+                // Reset all game state on init (for proper restart)
                 this.score = 0;
                 this.gameOver = false;
                 this.cannonAngle = -Math.PI / 2;
@@ -552,8 +552,8 @@
                 this.lastPointerPosition = { x: 450, y: 400 };
                 this.currentSpawnDelay = 4000;
                 this.spawnSpeedMultiplier = 0.96;
-                this.currentBatDelay = 8000;
-                this.batDelayIncrement = 200;
+                this.currentBatDelay = 4000;
+                this.batDelayIncrement = 0;
                 this.spellSlots = [null, null, null, null];
                 this.selectedSpell = null;
                 this.activeWaterLines = [];
@@ -615,7 +615,7 @@
                 this.gameOverMessages = [
                     "The darkness engulfs you...",
                     "As you lose consciousness, odd runes twirl around your head: KA JI SU LI",
-                    "Bats donâ€™t need HED, they just need the Apprenticeâ€™s love. Poke them gently, and theyâ€™ll thank you in silence.",
+                    "Bats don't need HED, they just need the Apprentice's love. Poke them gently, and they'll thank you in silence.",
                     "WEN TGE",
                     "Some say they hear screams coming from the secret tower , but somehow seem strangely muffled, as if they are coming from closed mouths..."
                 ];
@@ -628,6 +628,12 @@
                 this.horseVelocityX = 0;
                 this.horseVelocityY = 0;
                 this.pendingEggSpawn = false;
+
+                // Replace single horse variables with multi-horse system
+                this.horses = []; // Array to hold all horses
+                this.horseSpawnData = []; // Array to track each horse's spawn timing
+                this.nextHorseId = 0; // Counter for horse IDs
+                this.NEW_HORSE_DELAY = 30000;
 
                 // Loading state
                 this.loadingText = null;
@@ -833,8 +839,8 @@
                 this.createSpellInterface();
 
                 // Start spawning with first egg immediately - CRITICAL PART!
-                this.triggerEggSpawn();
-                this.scheduleNextEgg();
+                this.triggerEggSpawnForHorse(0);
+                this.scheduleNextEggForHorse(0);
 
                 // Schedule first bat
                 this.scheduleBat();
@@ -989,24 +995,56 @@
                 }
             }
 
-            // KEEP ALL HORSE METHODS EXACTLY AS THEY WERE!!!
-            createHorse() {
-                const spawnX = Phaser.Math.Between(150, this.gameWidth - 150);
-                const spawnY = Phaser.Math.Between(50, 150);
+            createHorse(startFromTop = false) {
+                let spawnX, spawnY;
 
-                this.horse = this.add.sprite(spawnX, spawnY, 'horse_walk_1');
-                this.horse.setDisplaySize(this.HORSE_SIZE, this.HORSE_SIZE);
-                this.horse.setDepth(100);
+                if (startFromTop) {
+                    // New horses enter from top of screen
+                    spawnX = Phaser.Math.Between(150, this.gameWidth - 150);
+                    spawnY = -50; // Start above screen
+                } else {
+                    // First horse spawns normally
+                    spawnX = Phaser.Math.Between(150, this.gameWidth - 150);
+                    spawnY = Phaser.Math.Between(50, 150);
+                }
 
-                this.horseWalkFrame = 0;
-                this.horseIsLaying = false;
-                this.horseAngle = this.getRandomHorseDirection();
-                this.horseVelocityX = Math.cos(this.horseAngle) * this.HORSE_SPEED;
-                this.horseVelocityY = Math.sin(this.horseAngle) * this.HORSE_SPEED;
+                const horse = this.add.sprite(spawnX, spawnY, 'horse_walk_1');
+                horse.setDisplaySize(this.HORSE_SIZE, this.HORSE_SIZE);
+                horse.setDepth(100);
+                horse.horseId = this.nextHorseId++;
+                horse.walkFrame = 0;
+                horse.isLaying = false;
+                horse.angle = this.getRandomHorseDirection();
+                horse.velocityX = Math.cos(horse.angle) * this.HORSE_SPEED;
+                horse.velocityY = Math.sin(horse.angle) * this.HORSE_SPEED;
+                horse.pendingEggSpawn = false;
 
-                this.startHorseWalking();
+                // If starting from top, make it walk down initially
+                if (startFromTop) {
+                    horse.velocityY = Math.abs(horse.velocityY); // Force downward movement initially
+                }
+
+                // Create spawn data for this horse
+                const spawnData = {
+                    horseId: horse.horseId,
+                    currentSpawnDelay: 4000, // Start with base delay
+                    spawnTimer: null,
+                    hasReachedMaxRate: false,
+                    nextHorseScheduled: false
+                };
+
+                this.horses.push(horse);
+                this.horseSpawnData.push(spawnData);
+
+                this.startHorseWalking(horse);
+
+                // Start spawning for this horse
+                this.scheduleNextEggForHorse(horse.horseId);
+
+                console.log(`Created horse ${horse.horseId} ${startFromTop ? 'from top' : 'normally'}`);
+
+                return horse;
             }
-
             getRandomHorseDirection() {
                 const goingLeft = Phaser.Math.Between(0, 1) === 0;
 
@@ -1017,13 +1055,13 @@
                 }
             }
 
-            startHorseWalking() {
-                this.horseWalkTimer = this.time.addEvent({
+            startHorseWalking(horse) {
+                horse.walkTimer = this.time.addEvent({
                     delay: this.HORSE_WALK_FRAME_DURATION,
                     callback: () => {
-                        if (!this.horseIsLaying && this.horse && this.horse.active) {
-                            this.horseWalkFrame = (this.horseWalkFrame % 8) + 1;
-                            this.horse.setTexture(`horse_walk_${this.horseWalkFrame}`);
+                        if (!horse.isLaying && horse && horse.active) {
+                            horse.walkFrame = (horse.walkFrame % 8) + 1;
+                            horse.setTexture(`horse_walk_${horse.walkFrame}`);
                         }
                     },
                     loop: true
@@ -1031,66 +1069,81 @@
             }
 
             updateHorseMovement() {
-                if (!this.horse || !this.horse.active || this.horseIsLaying) return;
+                this.horses.forEach(horse => {
+                    if (!horse || !horse.active || horse.isLaying) return;
 
-                this.horse.x += this.horseVelocityX * (1 / 60);
-                this.horse.y += this.horseVelocityY * (1 / 60);
+                    horse.x += horse.velocityX * (1 / 60);
+                    horse.y += horse.velocityY * (1 / 60);
 
-                const margin = 60;
-                let directionChanged = false;
+                    const margin = 60;
+                    let directionChanged = false;
 
-                if (this.horse.x < margin) {
-                    this.horse.x = margin;
-                    this.horseVelocityX = Math.abs(this.horseVelocityX);
-                    directionChanged = true;
-                } else if (this.horse.x > this.gameWidth - margin) {
-                    this.horse.x = this.gameWidth - margin;
-                    this.horseVelocityX = -Math.abs(this.horseVelocityX);
-                    directionChanged = true;
-                }
+                    if (horse.x < margin) {
+                        horse.x = margin;
+                        horse.velocityX = Math.abs(horse.velocityX);
+                        directionChanged = true;
+                    } else if (horse.x > this.gameWidth - margin) {
+                        horse.x = this.gameWidth - margin;
+                        horse.velocityX = -Math.abs(horse.velocityX);
+                        directionChanged = true;
+                    }
 
-                if (this.horse.y < 30) {
-                    this.horse.y = 30;
-                    this.horseVelocityY = Math.abs(this.horseVelocityY);
-                    directionChanged = true;
-                } else if (this.horse.y > 200) {
-                    this.horse.y = 200;
-                    this.horseVelocityY = -Math.abs(this.horseVelocityY);
-                    directionChanged = true;
-                }
+                    if (horse.y < 30) {
+                        horse.y = 30;
+                        horse.velocityY = Math.abs(horse.velocityY);
+                        directionChanged = true;
+                    } else if (horse.y > 200) {
+                        horse.y = 200;
+                        horse.velocityY = -Math.abs(horse.velocityY);
+                        directionChanged = true;
+                    }
 
-                if (directionChanged) {
-                    this.horseAngle = Math.atan2(this.horseVelocityY, this.horseVelocityX);
-                }
+                    if (directionChanged) {
+                        horse.angle = Math.atan2(horse.velocityY, horse.velocityX);
+                    }
 
-                this.horse.setFlipX(this.horseVelocityX > 0);
+                    horse.setFlipX(horse.velocityX > 0);
+                });
             }
 
-            triggerEggSpawn() {
-                if (this.gameOver || !this.horse || !this.horse.active) return;
-                this.pendingEggSpawn = true;
-                this.startHorseLayingAnimation();
+            // New method to find horse by ID:
+            findHorseById(horseId) {
+                return this.horses.find(horse => horse.horseId === horseId);
             }
 
-            startHorseLayingAnimation() {
-                if (this.horseIsLaying) return;
+            // New method to find spawn data by horse ID:
+            findSpawnDataById(horseId) {
+                return this.horseSpawnData.find(data => data.horseId === horseId);
+            }
 
-                this.horseIsLaying = true;
 
-                if (this.horseWalkTimer) {
-                    this.horseWalkTimer.paused = true;
+            triggerEggSpawnForHorse(horseId) {
+                const horse = this.findHorseById(horseId);
+                if (this.gameOver || !horse || !horse.active) return;
+
+                horse.pendingEggSpawn = true;
+                this.startHorseLayingAnimation(horse);
+            }
+
+            startHorseLayingAnimation(horse) {
+                if (horse.isLaying) return;
+
+                horse.isLaying = true;
+
+                if (horse.walkTimer) {
+                    horse.walkTimer.paused = true;
                 }
 
                 let layFrame = 1;
                 const layFrames = 3;
 
                 const layAnimation = () => {
-                    if (layFrame <= layFrames && this.horse && this.horse.active) {
-                        this.horse.setTexture(`horse_egg_${layFrame}`);
+                    if (layFrame <= layFrames && horse && horse.active) {
+                        horse.setTexture(`horse_egg_${layFrame}`);
 
-                        if (layFrame === 2 && this.pendingEggSpawn) {
-                            this.spawnEggAtHorse();
-                            this.pendingEggSpawn = false;
+                        if (layFrame === 2 && horse.pendingEggSpawn) {
+                            this.spawnEggAtHorse(horse);
+                            horse.pendingEggSpawn = false;
                         }
 
                         layFrame++;
@@ -1098,7 +1151,7 @@
                         if (layFrame <= layFrames) {
                             this.time.delayedCall(this.HORSE_LAY_FRAME_DURATION, layAnimation);
                         } else {
-                            this.endHorseLayingAnimation();
+                            this.endHorseLayingAnimation(horse);
                         }
                     }
                 };
@@ -1106,38 +1159,39 @@
                 layAnimation();
             }
 
-            endHorseLayingAnimation() {
-                this.horseIsLaying = false;
 
-                this.horseWalkFrame = 1;
-                if (this.horse && this.horse.active) {
-                    this.horse.setTexture(`horse_walk_${this.horseWalkFrame}`);
+            endHorseLayingAnimation(horse) {
+                horse.isLaying = false;
+
+                horse.walkFrame = 1;
+                if (horse && horse.active) {
+                    horse.setTexture(`horse_walk_${horse.walkFrame}`);
                 }
 
-                this.horseAngle = this.getRandomHorseDirection();
-                this.horseVelocityX = Math.cos(this.horseAngle) * this.HORSE_SPEED;
-                this.horseVelocityY = Math.sin(this.horseAngle) * this.HORSE_SPEED;
+                horse.angle = this.getRandomHorseDirection();
+                horse.velocityX = Math.cos(horse.angle) * this.HORSE_SPEED;
+                horse.velocityY = Math.sin(horse.angle) * this.HORSE_SPEED;
 
-                if (this.horseWalkTimer) {
-                    this.horseWalkTimer.paused = false;
+                if (horse.walkTimer) {
+                    horse.walkTimer.paused = false;
                 }
             }
 
-            spawnEggAtHorse() {
-                if (this.gameOver || !this.horse || !this.horse.active) return;
+            spawnEggAtHorse(horse) {
+                if (this.gameOver || !horse || !horse.active) return;
 
-                const horseIsFlipped = this.horse.flipX;
+                const horseIsFlipped = horse.flipX;
                 const rearOffsetDistance = 40;
 
                 let spawnX, spawnY;
 
                 if (horseIsFlipped) {
-                    spawnX = this.horse.x - rearOffsetDistance;
+                    spawnX = horse.x - rearOffsetDistance;
                 } else {
-                    spawnX = this.horse.x + rearOffsetDistance;
+                    spawnX = horse.x + rearOffsetDistance;
                 }
 
-                spawnY = this.horse.y + 10;
+                spawnY = horse.y + 10;
 
                 spawnX = Phaser.Math.Clamp(spawnX, 150, this.gameWidth - 150);
                 spawnY = Phaser.Math.Clamp(spawnY, 50, 200);
@@ -1176,14 +1230,35 @@
                 });
             }
 
-            scheduleNextEgg() {
+            scheduleNextEggForHorse(horseId) {
                 if (this.gameOver) return;
 
-                this.eggSpawnTimer = this.time.delayedCall(this.currentSpawnDelay, () => {
-                    this.triggerEggSpawn();
-                    this.currentSpawnDelay *= this.spawnSpeedMultiplier;
-                    this.currentSpawnDelay = Math.max(this.MINIMUM_SPAWN_DELAY, this.currentSpawnDelay);
-                    this.scheduleNextEgg();
+                const spawnData = this.findSpawnDataById(horseId);
+                if (!spawnData) return;
+
+                spawnData.spawnTimer = this.time.delayedCall(spawnData.currentSpawnDelay, () => {
+                    this.triggerEggSpawnForHorse(horseId);
+
+                    // Update spawn delay for this horse
+                    spawnData.currentSpawnDelay *= this.spawnSpeedMultiplier;
+                    spawnData.currentSpawnDelay = Math.max(this.MINIMUM_SPAWN_DELAY, spawnData.currentSpawnDelay);
+
+                    // Check if this horse just reached max rate
+                    if (!spawnData.hasReachedMaxRate && spawnData.currentSpawnDelay <= this.MINIMUM_SPAWN_DELAY) {
+                        spawnData.hasReachedMaxRate = true;
+                        console.log(`Horse ${horseId} reached maximum spawn rate!`);
+
+                        // Schedule next horse after delay
+                        if (!spawnData.nextHorseScheduled) {
+                            spawnData.nextHorseScheduled = true;
+                            this.time.delayedCall(this.NEW_HORSE_DELAY, () => {
+                                this.createHorse(true); // Create from top
+                            });
+                            console.log(`Next horse scheduled to appear in ${this.NEW_HORSE_DELAY}ms`);
+                        }
+                    }
+
+                    this.scheduleNextEggForHorse(horseId);
                 });
             }
 
@@ -2242,6 +2317,15 @@
                     this.horseVelocityY = 0;
                     this.horseIsLaying = false;
                 }
+
+                this.horses.forEach(horse => {
+                    if (horse.walkTimer) horse.walkTimer.destroy();
+                });
+                this.horseSpawnData.forEach(spawnData => {
+                    if (spawnData.spawnTimer) spawnData.spawnTimer.destroy();
+                });
+                this.horses = [];
+                this.horseSpawnData = [];
 
                 this.hedles.children.entries.forEach(hedle => {
                     if (hedle.body) hedle.body.setVelocity(0, 0);
